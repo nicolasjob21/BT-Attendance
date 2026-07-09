@@ -1,0 +1,213 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap');
+
+@import 'tailwindcss';
+
+@plugin '@tailwindcss/forms';
+
+/* Class-based dark mode (html.dark), toggled in the layouts */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Template sources (Laravel Blade + compiled + pagination views) */
+@source '../views';
+@source '../../storage/framework/views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views';
+
+@theme {
+    /* Typography — shared Brite-Tech identity (Syne display + Inter body) */
+    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'Syne', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+    /* Brite-Tech blue (primary) — landing-page cyan hue, scaled for UI use */
+    --color-brand-50: #f1f9fc;
+    --color-brand-100: #d9eff7;
+    --color-brand-200: #b9e2ef;
+    --color-brand-300: #7ec8e3; /* landing --blue */
+    --color-brand-400: #54b0d1;
+    --color-brand-500: #4a9bb5; /* landing --blue-dim */
+    --color-brand-600: #35748a;
+    --color-brand-700: #2c5f72;
+    --color-brand-800: #294e5e;
+    --color-brand-900: #26414f;
+    --color-brand-950: #172a34;
+
+    /* Brite-Tech orange (accent) — landing-page coral hue, scaled for UI use */
+    --color-accent-50: #fef4f0;
+    --color-accent-100: #fde7de;
+    --color-accent-200: #facdbd;
+    --color-accent-300: #f7ab90;
+    --color-accent-400: #f4845f; /* landing --orange */
+    --color-accent-500: #ea6c44;
+    --color-accent-600: #c85f3a; /* landing --orange-dim */
+    --color-accent-700: #a54a2e;
+    --color-accent-800: #883f29;
+    --color-accent-900: #6f3626;
+    --color-accent-950: #3c1a11;
+
+    /* Editorial dark surfaces (from the landing page) */
+    --color-ink: #1c1c1e;      /* app background   (landing --bg) */
+    --color-surface: #242428;  /* cards / panels   (landing --bg-card) */
+    --color-deep: #141416;     /* chrome / wells   (landing --bg-deep) */
+    --color-hair: #7ec8e326;   /* cyan hairline border (landing --border, ~15%) */
+}
+
+[x-cloak] { display: none !important; }
+
+@layer base {
+    /* Editorial theme is dark-first; light is opt-in */
+    html { color-scheme: dark; }
+    html:not(.dark) { color-scheme: light; }
+
+    /* Tailwind v4 compat: keep a sensible default border color. */
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+    .dark *,
+    .dark ::after,
+    .dark ::before {
+        border-color: var(--color-hair);
+    }
+
+    /* Tailwind v4 sets buttons to cursor:default; restore pointer. */
+    button:not(:disabled),
+    [role='button']:not(:disabled) {
+        cursor: pointer;
+    }
+
+    /* Editorial headings — Syne display face, tight tracking */
+    h1, h2, h3, h4, .font-display {
+        font-family: var(--font-display);
+        letter-spacing: -0.01em;
+    }
+
+    /* Subtle film-grain overlay — the landing page's signature texture (dark only) */
+    .dark body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='.03'/%3E%3C/svg%3E");
+    }
+
+    /* Dark styling for form controls (centralized) */
+    .dark input:not([type='checkbox']):not([type='radio']):not([type='file']),
+    .dark select,
+    .dark textarea {
+        @apply border-brand-400/20 bg-deep text-slate-100;
+    }
+    .dark input::placeholder,
+    .dark textarea::placeholder {
+        @apply text-slate-500;
+    }
+
+    /* Refined scrollbars */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300 dark:bg-brand-500/40; }
+    ::-webkit-scrollbar-thumb:hover { @apply bg-slate-400 dark:bg-brand-500/60; }
+    ::-webkit-scrollbar-track { @apply bg-transparent; }
+}
+
+@layer components {
+    /* Editorial surface card — flat, thin cyan hairline, sharp corners */
+    .card {
+        @apply rounded-xs border border-slate-900/10 bg-white shadow-xs
+               dark:border-hair dark:bg-surface dark:shadow-none;
+    }
+    .card-hover {
+        @apply transition duration-200 hover:-translate-y-0.5 hover:border-brand-400/40 hover:shadow-lg
+               dark:hover:border-brand-400/35 dark:hover:bg-deep;
+    }
+
+    /* Icon chip for stat tiles */
+    .icon-chip {
+        @apply grid h-11 w-11 shrink-0 place-items-center rounded-xs;
+    }
+
+    /* Buttons — squared, uppercase, letter-spaced, Syne (landing style) */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-none px-5 py-2.5
+               font-display text-xs font-semibold uppercase tracking-widest
+               transition focus:outline-none focus:ring-2 focus:ring-offset-2
+               ring-offset-white dark:ring-offset-ink;
+    }
+    /* Primary CTA = coral fill (the landing page's primary action colour) */
+    .btn-primary {
+        @apply bg-accent-400 text-white hover:bg-accent-500 focus:ring-accent-500;
+    }
+    .btn-accent {
+        @apply bg-accent-400 text-white hover:bg-accent-500 focus:ring-accent-500;
+    }
+    /* Outline = cyan (the landing page's secondary action colour) */
+    .btn-outline {
+        @apply border border-brand-400 bg-transparent text-brand-600 hover:bg-brand-400 hover:text-white
+               focus:ring-brand-500 dark:text-brand-300 dark:hover:text-ink;
+    }
+
+    /* Signature blue -> orange brand gradient (from the logo) */
+    .brand-gradient {
+        @apply bg-linear-to-r from-brand-500 via-brand-400 to-accent-400;
+    }
+    .brand-gradient-text {
+        @apply bg-linear-to-r from-brand-400 to-accent-400 bg-clip-text text-transparent;
+    }
+
+    /* Eyebrow / section tag — cyan, uppercase, tracked (landing style) */
+    .eyebrow {
+        @apply font-display text-[11px] font-semibold uppercase tracking-[0.18em]
+               text-brand-600 dark:text-brand-300;
+    }
+    /* Section tag with leading rule, like the landing page's .section-tag */
+    .section-tag {
+        @apply inline-flex items-center gap-2 font-display text-xs font-semibold uppercase tracking-[0.2em]
+               text-brand-600 dark:text-brand-300 before:h-px before:w-6 before:bg-brand-500 before:content-[''];
+    }
+}
+
+/* Responsive data tables — collapse wide tables into stacked cards on phones.
+   Add class="table-stack" to the <table>, data-label="Header" to each <td>,
+   and class="cell-head" to the primary (title) cell. */
+@media (max-width: 767px) {
+    table.table-stack thead { display: none; }
+    table.table-stack tr { display: block; padding: 0.35rem 0; }
+    table.table-stack td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding-top: 0.3rem;
+        padding-bottom: 0.3rem;
+        text-align: right;
+        white-space: normal;
+    }
+    table.table-stack td::before {
+        content: attr(data-label);
+        margin-right: auto;
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--color-gray-500);
+    }
+    .dark table.table-stack td::before { color: var(--color-slate-400); }
+    /* Primary cell = card title (full width, left aligned, no label) */
+    table.table-stack td.cell-head {
+        display: block;
+        text-align: left;
+        padding-top: 0.75rem;
+    }
+    table.table-stack td.cell-head::before { content: none; }
+    table.table-stack td:last-child { padding-bottom: 0.75rem; }
+    /* The empty-state row spans normally */
+    table.table-stack td[colspan] { display: table-cell; text-align: center; }
+    table.table-stack td[colspan]::before { content: none; }
+}
+
+@media print {
+    aside, header { display: none !important; }
+    .lg\:pl-64, .lg\:pl-16 { padding-left: 0 !important; }
+}

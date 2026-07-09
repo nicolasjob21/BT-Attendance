@@ -1,0 +1,154 @@
+<style>
+#erd svg.erDiagram .divider path { stroke-opacity: 0.5; }
+#erd svg.erDiagram .row-rect-odd path,
+#erd svg.erDiagram .row-rect-odd rect,
+#erd svg.erDiagram .row-rect-even path,
+#erd svg.erDiagram .row-rect-even rect { stroke: none !important; }
+</style>
+<div id="erd"></div>
+<script type="module">
+import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+await document.fonts.ready;
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  fontFamily: '"Anthropic Sans", sans-serif',
+  themeVariables: {
+    darkMode: dark,
+    fontSize: '13px',
+    fontFamily: '"Anthropic Sans", sans-serif',
+    lineColor: dark ? '#9c9a92' : '#73726c',
+    textColor: dark ? '#c2c0b6' : '#3d3d3a',
+  },
+});
+const { svg } = await mermaid.render('erd-svg', `erDiagram
+  EMPLOYEES ||--o{ ATTENDANCE_LOGS : records
+  EMPLOYEES ||--o{ LEAVE_REQUESTS : files
+  EMPLOYEES ||--o{ OVERTIME_REQUESTS : files
+  EMPLOYEES }o--|| SCHEDULES : assigned_to
+  EMPLOYEES ||--o{ PAYROLL_ITEMS : has
+  SITES ||--o{ ATTENDANCE_LOGS : location_of
+  SITES ||--o{ OVERTIME_REQUESTS : trip_to
+  LEAVE_TYPES ||--o{ LEAVE_REQUESTS : categorizes
+  PAYROLL_PERIODS ||--o{ PAYROLL_ITEMS : contains
+  PAYROLL_ITEMS ||--|| PAYSLIPS : generates
+  CONTRIBUTION_RATES ||--o{ PAYROLL_ITEMS : applies_to
+
+  EMPLOYEES {
+    bigint id PK
+    string first_name
+    string last_name
+    string email
+    enum employee_type "admin, technical"
+    bigint schedule_id FK
+    string status
+  }
+  SCHEDULES {
+    bigint id PK
+    string name
+    time time_in
+    time time_out
+    boolean is_flexible
+  }
+  SITES {
+    bigint id PK
+    string name
+    string address
+    decimal latitude
+    decimal longitude
+    int geofence_radius_m
+  }
+  ATTENDANCE_LOGS {
+    bigint id PK
+    bigint employee_id FK
+    bigint site_id FK
+    enum log_type "time_in, time_out"
+    timestamp logged_at
+    decimal latitude
+    decimal longitude
+    string photo_path
+    boolean synced_offline
+  }
+  LEAVE_TYPES {
+    bigint id PK
+    string name
+    int default_days_per_year
+  }
+  LEAVE_REQUESTS {
+    bigint id PK
+    bigint employee_id FK
+    bigint leave_type_id FK
+    date date_from
+    date date_to
+    enum status "pending, approved, denied"
+    bigint approved_by FK
+  }
+  OVERTIME_REQUESTS {
+    bigint id PK
+    bigint employee_id FK
+    bigint site_id FK
+    date ot_date
+    decimal hours
+    enum ot_type "regular, rest_day, holiday"
+    enum status "pending, approved, denied"
+    bigint approved_by FK
+  }
+  PAYROLL_PERIODS {
+    bigint id PK
+    date period_start
+    date period_end
+    enum cutoff_type "15th, end_of_month"
+  }
+  PAYROLL_ITEMS {
+    bigint id PK
+    bigint employee_id FK
+    bigint payroll_period_id FK
+    decimal basic_pay
+    decimal overtime_pay
+    decimal sss_deduction
+    decimal philhealth_deduction
+    decimal pagibig_deduction
+    decimal net_pay
+  }
+  CONTRIBUTION_RATES {
+    bigint id PK
+    enum contribution_type "sss, philhealth, pagibig"
+    decimal min_salary
+    decimal max_salary
+    decimal employee_rate
+    decimal employer_rate
+    int effective_year
+  }
+  PAYSLIPS {
+    bigint id PK
+    bigint payroll_item_id FK
+    string file_path
+    timestamp generated_at
+  }`);
+document.getElementById('erd').innerHTML = svg;
+
+document.querySelectorAll('#erd svg.erDiagram .node').forEach(node => {
+  const firstPath = node.querySelector('path[d]');
+  if (!firstPath) return;
+  const d = firstPath.getAttribute('d');
+  const nums = d.match(/-?[\d.]+/g)?.map(Number);
+  if (!nums || nums.length < 8) return;
+  const xs = [nums[0], nums[2], nums[4], nums[6]];
+  const ys = [nums[1], nums[3], nums[5], nums[7]];
+  const x = Math.min(...xs), y = Math.min(...ys);
+  const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', '8');
+  for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
+    if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
+  }
+  firstPath.replaceWith(rect);
+});
+
+document.querySelectorAll('#erd svg.erDiagram .row-rect-odd path, #erd svg.erDiagram .row-rect-even path').forEach(p => {
+  p.setAttribute('stroke', 'none');
+});
+</script>
