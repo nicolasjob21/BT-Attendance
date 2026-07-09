@@ -121,6 +121,48 @@
                 <svg x-show="dark" x-cloak class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
             </button>
 
+            {{-- Notifications --}}
+            @php
+                $notifs = $user ? $user->notifications()->latest()->take(8)->get() : collect();
+                $unreadCount = $user ? $user->unreadNotifications()->count() : 0;
+            @endphp
+            <div x-data="{ open: false }" class="relative">
+                <button @click="open = !open" class="relative rounded-xs p-2 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700" aria-label="Notifications">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    @if($unreadCount)
+                        <span class="absolute -top-0.5 -right-0.5 grid h-4 min-w-[1rem] place-items-center rounded-full bg-accent-500 px-1 text-[10px] font-bold leading-none text-white">{{ $unreadCount > 9 ? '9+' : $unreadCount }}</span>
+                    @endif
+                </button>
+                <div x-show="open" x-cloak @click.outside="open = false"
+                     class="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xs border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                    <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-700">
+                        <span class="text-sm font-semibold text-gray-800 dark:text-slate-100">Notifications</span>
+                        @if($unreadCount)
+                            <form method="POST" action="{{ route('notifications.read-all') }}">
+                                @csrf
+                                <button class="text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">Mark all read</button>
+                            </form>
+                        @endif
+                    </div>
+                    <div class="max-h-96 overflow-y-auto">
+                        @forelse($notifs as $n)
+                            @php $unread = is_null($n->read_at); $kind = $n->data['kind'] ?? 'request'; @endphp
+                            <a href="{{ route('notifications.open', $n->id) }}"
+                               class="flex gap-3 border-b border-gray-50 px-4 py-3 hover:bg-gray-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 {{ $unread ? 'bg-brand-50/60 dark:bg-brand-900/10' : '' }}">
+                                <span class="mt-1.5 h-2 w-2 flex-none rounded-full {{ $kind === 'approved' ? 'bg-emerald-500' : ($kind === 'rejected' ? 'bg-rose-500' : 'bg-brand-500') }} {{ $unread ? '' : 'opacity-30' }}"></span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block text-sm font-medium text-gray-800 dark:text-slate-100">{{ $n->data['title'] ?? 'Notification' }}</span>
+                                    <span class="block truncate text-xs text-gray-500 dark:text-slate-400">{{ $n->data['message'] ?? '' }}</span>
+                                    <span class="mt-0.5 block text-[11px] text-gray-400 dark:text-slate-500">{{ $n->created_at->diffForHumans() }}</span>
+                                </span>
+                            </a>
+                        @empty
+                            <p class="px-4 py-8 text-center text-sm text-gray-400 dark:text-slate-500">No notifications yet.</p>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
+
             {{-- User menu --}}
             <div x-data="{ open: false }" class="relative">
                 <button @click="open = !open" class="flex items-center gap-2 rounded-xs px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-slate-700">

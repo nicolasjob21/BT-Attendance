@@ -4,8 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Models\User;
+use App\Notifications\ApprovalRequested;
+use App\Notifications\RequestReviewed;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Notification;
 
 class LeaveController extends Controller
 {
@@ -68,6 +72,11 @@ class LeaveController extends Controller
             'status' => 'pending',
         ]);
 
+        $portion = $data['day_portion'] === 'full'
+            ? "{$days} day(s) from " . Carbon::parse($data['date_from'])->format('M j')
+            : 'Half day on ' . Carbon::parse($data['date_from'])->format('M j');
+        $this->notifyApprovers('Leave', $employee->full_name, $portion, route('leave.index'));
+
         return redirect()->route('leave.index')->with('status', 'Leave request submitted for approval.');
     }
 
@@ -116,8 +125,24 @@ class LeaveController extends Controller
             'status' => 'pending',
         ]);
 
+        $this->notifyApprovers(
+            'Early leave',
+            $employee->full_name,
+            'Sick — out by ' . Carbon::parse($data['requested_time_out'])->format('g:i A') . ' today',
+            route('leave.index'),
+        );
+
         return redirect()->route('leave.index')
             ->with('status', 'Early-leave request submitted for HR approval.');
+    }
+
+    /** Notify everyone who can approve requests (HR / CEO). */
+    private function notifyApprovers(string $type, string $employee, string $summary, string $url): void
+    {
+        Notification::send(
+            User::permission('approve requests')->get(),
+            new ApprovalRequested($type, $employee, $summary, $url),
+        );
     }
 
     public function approve(Request $request, LeaveRequest $leave)
@@ -141,5 +166,8 @@ class LeaveController extends Controller
             'approved_by' => $request->user()->employee?->id,
             'approved_at' => now(),
         ]);
+
+        $type = $leave->is_early_leave ? 'Early leave' : 'Leave';
+        $leave->employee->user?->notify(new RequestReviewed($type, $status, route('leave.index')));
     }
 }

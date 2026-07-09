@@ -4,6 +4,18 @@
     </x-slot>
 
     <div class="mx-auto max-w-6xl space-y-4">
+        {{-- Immediate download prompt right after a successful Time In / Time Out --}}
+        @if(session('softcopy_log_id'))
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/30">
+                <p class="text-sm text-emerald-800 dark:text-emerald-200">Your proof-of-attendance soft copy is ready — keep it for your records.</p>
+                <a href="{{ route('attendance.softcopy', ['id' => session('softcopy_log_id'), 'type' => session('softcopy_type')]) }}"
+                   class="inline-flex items-center gap-2 rounded-xs bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    Download Soft Copy
+                </a>
+            </div>
+        @endif
+
         <div class="flex justify-end">
             <a href="{{ route('attendance.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">Clock In / Out</a>
         </div>
@@ -17,6 +29,7 @@
                             <th class="px-4 py-3">Date &amp; time</th>
                             <th class="px-4 py-3">Type</th>
                             <th class="px-4 py-3">Location</th>
+                            <th class="px-4 py-3">Soft copy</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
@@ -53,9 +66,16 @@
                                         <span class="text-gray-400 dark:text-slate-500">—</span>
                                     @endif
                                 </td>
+                                <td data-label="Soft copy" class="px-4 py-3">
+                                    <a href="{{ route('attendance.softcopy', ['id' => $log->id, 'type' => $log->log_type === 'time_in' ? 'in' : 'out']) }}"
+                                       class="inline-flex items-center gap-1 text-brand-600 hover:underline dark:text-brand-300">
+                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                                        Download
+                                    </a>
+                                </td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No attendance logs yet.</td></tr>
+                            <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No attendance logs yet.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

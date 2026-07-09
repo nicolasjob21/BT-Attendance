@@ -4,6 +4,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LeaveController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProfileController;
@@ -16,10 +17,16 @@ Route::get('/', function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+    // --- Notifications (all authenticated staff) ---
+    Route::get('/notifications/{id}', [NotificationController::class, 'open'])->name('notifications.open');
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+
     // --- Self-service (all authenticated staff) ---
     Route::get('/attendance', [AttendanceController::class, 'create'])->name('attendance.create');
     Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
     Route::get('/attendance/logs', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::get('/attendance/{id}/softcopy/{type}', [AttendanceController::class, 'softCopy'])
+        ->whereIn('type', ['in', 'out'])->name('attendance.softcopy');
 
     // --- Attendance monitor: everyone's time in/out by date (Dept. Head, HR, Admin) ---
     Route::get('/attendance/monitor', [AttendanceController::class, 'monitor'])

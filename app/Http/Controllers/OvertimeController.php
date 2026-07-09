@@ -4,10 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\OvertimeRequest;
+use App\Models\User;
+use App\Notifications\ApprovalRequested;
+use App\Notifications\RequestReviewed;
 use App\Support\WorkHours;
 use App\Support\WorkSessions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Notification;
 
 class OvertimeController extends Controller
 {
@@ -58,6 +62,16 @@ class OvertimeController extends Controller
             'reason' => $data['reason'] ?? null,
             'status' => 'pending',
         ]);
+
+        Notification::send(
+            User::permission('approve requests')->get(),
+            new ApprovalRequested(
+                'Overtime',
+                $employee->full_name,
+                "{$calc['hours']}h on " . Carbon::parse($data['ot_date'])->format('M j'),
+                route('overtime.index'),
+            ),
+        );
 
         return redirect()->route('overtime.index')
             ->with('status', "Overtime request for {$calc['hours']}h submitted for approval.");
@@ -181,5 +195,7 @@ class OvertimeController extends Controller
             'approved_by' => $request->user()->employee?->id,
             'approved_at' => now(),
         ]);
+
+        $overtime->employee->user?->notify(new RequestReviewed('Overtime', $status, route('overtime.index')));
     }
 }

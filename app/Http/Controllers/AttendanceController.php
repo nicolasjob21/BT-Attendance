@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceLog;
 use App\Models\Employee;
 use App\Models\Site;
+use App\Notifications\RequestReviewed;
+use App\Services\AttendanceSoftCopy;
 use App\Support\Geo;
 use App\Support\WorkHours;
 use App\Support\WorkSessions;
@@ -68,7 +70,7 @@ class AttendanceController extends Controller
 
         $photoPath = $this->storePhoto($data['photo'], $employee->id);
 
-        AttendanceLog::create([
+        $log = AttendanceLog::create([
             'employee_id' => $employee->id,
             'site_id' => $site?->id,
             'log_type' => $data['log_type'],
@@ -83,8 +85,39 @@ class AttendanceController extends Controller
 
         $verb = $data['log_type'] === 'time_in' ? 'Clocked in' : 'Clocked out';
 
+        // Flash the new punch so the history screen can offer an immediate download.
         return redirect()->route('attendance.index')
-            ->with('status', "{$verb} at " . Carbon::now()->format('g:i A') . '.');
+            ->with('status', "{$verb} at " . Carbon::now()->format('g:i A') . '.')
+            ->with('softcopy_log_id', $log->id)
+            ->with('softcopy_type', $data['log_type'] === 'time_in' ? 'in' : 'out');
+    }
+
+    /**
+     * Downloadable proof-of-attendance soft copy (PNG) for one punch.
+     * GET /attendance/{id}/softcopy/{type} where {type} is "in" or "out".
+     */
+    public function softCopy(Request $request, int $id, string $type)
+    {
+        abort_unless(in_array($type, ['in', 'out'], true), 404);
+
+        $log = AttendanceLog::with('employee.schedule')->findOrFail($id);
+
+        // The URL {type} must match the punch, so ATT-{id}-IN can't be faked as OUT.
+        abort_unless($log->log_type === ($type === 'in' ? 'time_in' : 'time_out'), 404);
+
+        // Employees may download their own; HR/CEO may download anyone's.
+        $user = $request->user();
+        abort_unless(
+            $log->employee_id === $user->employee?->id || $user->can('view team reports'),
+            403,
+        );
+
+        $soft = app(AttendanceSoftCopy::class);
+
+        return response($soft->png($log), 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => 'attachment; filename="' . $soft->filename($log) . '"',
+        ]);
     }
 
     /** Personal attendance history. */
@@ -206,6 +239,10 @@ class AttendanceController extends Controller
             'ot_verified_by' => $request->user()->id,
             'ot_verified_at' => now(),
         ]);
+
+        $log->employee->user?->notify(
+            new RequestReviewed('Overtime', $data['decision'], route('attendance.index')),
+        );
 
         $verb = $data['decision'] === 'approved' ? 'approved' : 'rejected';
 
