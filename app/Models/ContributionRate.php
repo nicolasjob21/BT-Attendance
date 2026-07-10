@@ -4,13 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+
 class ContributionRate extends Model
 {
     protected $guarded = [];
 
     protected function casts(): array
+
     {
         return [
+
             'min_salary' => 'decimal:2',
             'max_salary' => 'decimal:2',
             'employee_rate' => 'decimal:4',
@@ -48,3 +51,5 @@ class ContributionRate extends Model
             : $brackets->first());
     }
 }
+
+

@@ -122,6 +122,9 @@
                 cameraError: '',
                 submitting: false,
 
+                // Philippine-time timestamp burned into the captured photo
+                clockDate: '', clockTime: '',
+
                 // Geofence state (client-side hint; the server is the source of truth)
                 onSite: false, nearestSiteName: '', nearestDistance: null,
 
@@ -133,6 +136,34 @@
                     this.initMap();
                     this.getLocation();
                     this.startCamera();
+                },
+
+                // Capture the current Philippine time, independent of the device's
+                // own timezone setting.
+                tickClock() {
+                    const d = new Date();
+                    this.clockDate = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'Asia/Manila' });
+                    this.clockTime = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
+                },
+
+                // Draw the current PH timestamp onto the captured frame so the saved
+                // photo itself carries the time (tamper-evident proof for HR).
+                stampTimestamp(ctx, w, h) {
+                    const label = this.clockDate + '   ' + this.clockTime;
+                    const fontSize = Math.max(11, Math.round(w * 0.028));
+                    ctx.font = 'bold ' + fontSize + 'px Arial, Helvetica, sans-serif';
+                    ctx.textBaseline = 'alphabetic';
+                    const padX = Math.round(fontSize * 0.5);
+                    const padY = Math.round(fontSize * 0.4);
+                    const boxW = ctx.measureText(label).width + padX * 2;
+                    const boxH = fontSize + padY * 2;
+                    const margin = Math.round(w * 0.025);
+                    const x = margin;
+                    const y = h - margin - boxH;
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+                    ctx.fillRect(x, y, boxW, boxH);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(label, x + padX, y + padY + fontSize * 0.82);
                 },
 
                 initMap() {
@@ -279,7 +310,10 @@
                     const canvas = this.$refs.canvas;
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
-                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0);
+                    this.tickClock(); // freshest time at the moment of capture
+                    this.stampTimestamp(ctx, canvas.width, canvas.height);
                     this.photo = canvas.toDataURL('image/jpeg', 0.8);
                     this.stopCamera();
                 },

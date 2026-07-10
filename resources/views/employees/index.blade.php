@@ -78,7 +78,12 @@
                                 <td data-label="Monthly salary" class="px-4 py-3 text-right tabular-nums text-gray-900 dark:text-slate-100">₱{{ number_format($emp->monthly_salary, 2) }}</td>
                                 <td data-label="Status" class="px-4 py-3"><x-status-badge :status="$emp->status" /></td>
                                 <td data-label="Actions" class="px-4 py-3 text-right">
-                                    <a href="{{ route('employees.edit', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Edit</a>
+                                    <div class="flex justify-end gap-3">
+                                        @can('run payroll')
+                                            <a href="{{ route('employees.salary-history', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Salary history</a>
+                                        @endcan
+                                        <a href="{{ route('employees.edit', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Edit</a>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

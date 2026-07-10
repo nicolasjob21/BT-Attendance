@@ -84,10 +84,18 @@ class AttendanceController extends Controller
         ]);
 
         $verb = $data['log_type'] === 'time_in' ? 'Clocked in' : 'Clocked out';
+        $message = "{$verb} at " . Carbon::now()->format('g:i A') . '.';
+
+        // Early in is the employee's own choice and does not affect pay — just
+        // let them know it was recorded as an early clock-in.
+        if ($data['log_type'] === 'time_in'
+            && app(AttendanceSoftCopy::class)->status($log->loadMissing('employee.schedule')) === 'Early In') {
+            $message .= ' You clocked in early — that\'s fine, it does not affect your pay.';
+        }
 
         // Flash the new punch so the history screen can offer an immediate download.
         return redirect()->route('attendance.index')
-            ->with('status', "{$verb} at " . Carbon::now()->format('g:i A') . '.')
+            ->with('status', $message)
             ->with('softcopy_log_id', $log->id)
             ->with('softcopy_type', $data['log_type'] === 'time_in' ? 'in' : 'out');
     }

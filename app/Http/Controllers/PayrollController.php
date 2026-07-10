@@ -42,6 +42,21 @@ class PayrollController extends Controller
             ->with('status', "Payroll computed for {$employees->count()} employees.");
     }
 
+    /**
+     * Full salary/payroll history for one employee across every period,
+     * newest first. For HR to review how an employee has been paid over time.
+     */
+    public function salaryHistory(Employee $employee)
+    {
+        $items = $employee->payrollItems()
+            ->with('payrollPeriod')
+            ->get()
+            ->sortByDesc(fn (PayrollItem $item) => $item->payrollPeriod?->period_start)
+            ->values();
+
+        return view('payroll.salary-history', compact('employee', 'items'));
+    }
+
     /** On-screen payslip for a single payroll line. */
     public function show(Request $request, PayrollItem $item)
     {

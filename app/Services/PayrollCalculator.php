@@ -80,11 +80,14 @@ class PayrollCalculator
         }
         $overtimePay = round($overtimePay, 2);
 
-        // ---- government contributions (monthly, split per cutoff) ----
+        // ---- government contributions (monthly amount, split 50/50 per cutoff) ----
+        // 50% is deducted on the first-half (15th) payroll and the remaining
+        // 50% on the second-half (end-of-month) payroll.
         $year = (int) $period->period_end->format('Y');
-        $sss = $this->contribution('sss', $monthly, $year);
-        $philhealth = $this->contribution('philhealth', $monthly, $year);
-        $pagibig = min($this->contribution('pagibig', $monthly, $year), 200.0); // Pag-IBIG employee cap ₱200
+        $cutoff = $period->cutoff_type;
+        $sss = $this->contribution('sss', $monthly, $year, $cutoff);
+        $philhealth = $this->contribution('philhealth', $monthly, $year, $cutoff);
+        $pagibig = $this->contribution('pagibig', $monthly, $year, $cutoff);
 
         $grossPay = round($basicPay + $overtimePay, 2);
         $totalDeductions = round($absencesDeduction + $halfDayDeduction + $sss + $philhealth + $pagibig, 2);
@@ -112,9 +115,11 @@ class PayrollCalculator
     }
 
     /**
-     * Employee-share contribution for a type, halved for the semi-monthly cutoff.
+     * Employee-share contribution for a type, split equally across the two
+     * semi-monthly cutoffs: 50% on the first-half (15th) payroll and the
+     * remaining 50% on the second-half (end-of-month) payroll.
      */
-    private function contribution(string $type, float $monthlySalary, int $year): float
+    private function contribution(string $type, float $monthlySalary, int $year, string $cutoffType): float
     {
         $rate = ContributionRate::forSalary($type, $monthlySalary, $year);
         if (! $rate) {
@@ -129,7 +134,19 @@ class PayrollCalculator
 
         $monthlyShare = $base * (float) $rate->employee_rate;
 
-        return round($monthlyShare / 2, 2); // split across the two monthly cutoffs
+        // Pag-IBIG employee share is capped at ₱200 per MONTH. Cap before the
+        // split so each cutoff carries ₱100 (not ₱200 each = ₱400/month).
+        if ($type === 'pagibig') {
+            $monthlyShare = min($monthlyShare, 200.0);
+        }
+
+        // Deduct 50% on the 15th cutoff; the end-of-month cutoff takes the
+        // remainder so the two halves always sum to the exact monthly share.
+        $firstHalf = round($monthlyShare / 2, 2);
+
+        return $cutoffType === 'first_half'
+            ? $firstHalf
+            : round($monthlyShare - $firstHalf, 2);
     }
 
     /** Weekdays (Mon–Fri) within the period. */

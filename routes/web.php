@@ -72,6 +72,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('permission:run payroll')->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
         Route::post('/payroll/{period}/generate', [PayrollController::class, 'generate'])->name('payroll.generate');
+        Route::get('/employees/{employee}/salary-history', [PayrollController::class, 'salaryHistory'])->name('employees.salary-history');
     });
 
     // --- Profile (Breeze) ---
