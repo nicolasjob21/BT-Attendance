@@ -12,8 +12,8 @@ $icons = [
 ];
 $base = 'relative flex items-center gap-3 rounded-none border-l-2 px-3 py-2 text-sm font-medium transition-colors';
 $state = $active
-    ? 'border-accent-400 bg-brand-500/12 text-white'
-    : 'border-transparent text-slate-400 hover:bg-brand-500/8 hover:text-white';
+    ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-accent-400 dark:bg-brand-500/12 dark:text-white'
+    : 'border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-brand-500/8 dark:hover:text-white';
 @endphp
 
 <a href="{{ $href }}" @click="sidebar = false" :title="collapsed ? '{{ trim($slot) }}' : ''" class="{{ $base }} {{ $state }}">

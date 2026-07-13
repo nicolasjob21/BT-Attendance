@@ -62,6 +62,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/employees/create', [EmployeeController::class, 'create'])->name('employees.create');
         Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store');
         Route::get('/employees/import', [EmployeeController::class, 'importForm'])->name('employees.import');
+        Route::get('/employees/import/template', [EmployeeController::class, 'importTemplate'])->name('employees.import.template');
         Route::post('/employees/import', [EmployeeController::class, 'import'])->name('employees.import.store');
         Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');

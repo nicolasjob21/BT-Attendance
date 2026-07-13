@@ -26,7 +26,7 @@
         @endif
 
         {{-- Toolbar --}}
-        <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <form method="GET" action="{{ route('attendance.monitor') }}" class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 {{-- Date picker + day stepper --}}
                 <div class="inline-flex items-center overflow-hidden rounded-xs border border-gray-300 dark:border-slate-600">

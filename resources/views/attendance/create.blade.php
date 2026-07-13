@@ -52,7 +52,7 @@
                         <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Location</label>
                         <div class="overflow-hidden rounded-xs border border-gray-200 dark:border-hair">
                             {{-- Leaflet map --}}
-                            <div x-ref="map" class="h-60 w-full bg-gray-100 dark:bg-deep"></div>
+                            <div x-ref="map" class="relative z-0 h-60 w-full bg-gray-100 dark:bg-deep"></div>
 
                             {{-- Status bar --}}
                             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 dark:border-hair bg-gray-50 dark:bg-slate-800/60 px-3 py-2 text-sm">

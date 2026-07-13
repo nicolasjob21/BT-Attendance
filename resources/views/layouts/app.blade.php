@@ -47,10 +47,10 @@
     {{-- Sidebar --}}
     <aside x-cloak
            :class="[sidebar ? 'translate-x-0' : '-translate-x-full', collapsed ? 'lg:w-16' : 'lg:w-64']"
-           class="fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-hair bg-deep text-slate-300 transition-all duration-200 lg:translate-x-0">
+           class="fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-gray-200 bg-white text-gray-600 transition-all duration-200 lg:translate-x-0 dark:border-hair dark:bg-deep dark:text-slate-300">
 
         {{-- Brand --}}
-        <div class="flex shrink-0 items-center justify-center gap-2 border-b border-hair px-3 py-6">
+        <div class="flex shrink-0 items-center justify-center gap-2 border-b border-gray-200 px-3 py-6 dark:border-hair">
             <img src="{{ asset('images/brite-fav.png') }}" alt="Brite-Tech" class="hidden h-10 w-10 shrink-0"
                  :class="collapsed ? 'lg:block' : ''">
             <span :class="collapsed ? 'lg:hidden' : ''" class="flex items-center justify-center">
@@ -65,7 +65,7 @@
             </div>
 
             <div>
-                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Self-service</p>
+                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Self-service</p>
                 <div class="space-y-1">
                     <x-nav-item :active="request()->routeIs('attendance.create')" :href="route('attendance.create')" icon="clock">Clock In / Out</x-nav-item>
                     <x-nav-item :active="request()->routeIs('attendance.index')" :href="route('attendance.index')" icon="list">My Attendance</x-nav-item>
@@ -76,7 +76,7 @@
 
             @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports'))
             <div>
-                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Management</p>
+                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
                 <div class="space-y-1">
                     @can('view team reports')
                         <x-nav-item :active="request()->routeIs('attendance.monitor')" :href="route('attendance.monitor')" icon="list">Attendance Log</x-nav-item>
@@ -93,8 +93,8 @@
         </nav>
 
         {{-- Collapse toggle (desktop only) --}}
-        <div class="hidden shrink-0 border-t border-hair p-2 lg:block">
-            <button @click="toggleCollapse()" class="flex w-full items-center gap-3 rounded-none px-3 py-2 text-sm text-slate-400 hover:bg-brand-500/10 hover:text-white">
+        <div class="hidden shrink-0 border-t border-gray-200 p-2 lg:block dark:border-hair">
+            <button @click="toggleCollapse()" class="flex w-full items-center gap-3 rounded-none px-3 py-2 text-sm text-gray-500 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-400 dark:hover:bg-brand-500/10 dark:hover:text-white">
                 <svg class="h-5 w-5 shrink-0 transition-transform" :class="collapsed && 'rotate-180'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/></svg>
                 <span :class="collapsed ? 'lg:hidden' : ''">Collapse</span>
             </button>
@@ -134,7 +134,7 @@
                     @endif
                 </button>
                 <div x-show="open" x-cloak @click.outside="open = false"
-                     class="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xs border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                     class="fixed inset-x-2 top-[4.25rem] z-20 w-auto overflow-hidden rounded-xs border border-gray-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
                     <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2.5 dark:border-slate-700">
                         <span class="text-sm font-semibold text-gray-800 dark:text-slate-100">Notifications</span>
                         @if($unreadCount)
@@ -166,9 +166,14 @@
             {{-- User menu --}}
             <div x-data="{ open: false }" class="relative">
                 <button @click="open = !open" class="flex items-center gap-2 rounded-xs px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-slate-700">
-                    <span class="grid h-8 w-8 place-items-center rounded-full bg-brand-100 text-brand-700 font-semibold text-sm dark:bg-brand-900 dark:text-brand-200">
-                        {{ strtoupper(substr($user?->name ?? '?', 0, 1)) }}
-                    </span>
+                    @if($user?->profile_photo_url)
+                        <img src="{{ $user->profile_photo_url }}" alt="{{ $user->name }}"
+                             class="h-8 w-8 rounded-full object-cover ring-1 ring-gray-200 dark:ring-slate-700">
+                    @else
+                        <span class="grid h-8 w-8 place-items-center rounded-full bg-brand-100 text-brand-700 font-semibold text-sm dark:bg-brand-900 dark:text-brand-200">
+                            {{ strtoupper(substr($user?->name ?? '?', 0, 1)) }}
+                        </span>
+                    @endif
                     <span class="hidden text-left sm:block leading-tight">
                         <span class="block text-sm font-medium text-gray-800 dark:text-slate-100">{{ $user?->name }}</span>
                         <span class="block text-xs text-brand-700 dark:text-brand-300">{{ $roleLabels[$role] ?? ucfirst($role ?? '') }}</span>

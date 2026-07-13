@@ -5,13 +5,31 @@
 
     <div class="mx-auto max-w-2xl space-y-5">
         <div class="card p-6">
-            <p class="text-sm text-gray-600 dark:text-slate-300">Upload a CSV to onboard many employees at once — each row creates an employee record and a login account.</p>
+            <p class="text-sm text-gray-600 dark:text-slate-300">Upload an Excel file (<code>.xlsx</code>) to onboard many employees at once — each row creates an employee record and a login account.</p>
 
             <div class="mt-4 rounded-xs bg-gray-50 dark:bg-slate-800/60 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Required columns (header row)</p>
-                <code class="mt-2 block overflow-x-auto whitespace-pre rounded-sm bg-white dark:bg-slate-800 px-3 py-2 text-xs text-gray-700 dark:text-slate-200 border border-gray-200 dark:border-slate-700">first_name,last_name,email,employee_type,monthly_salary
-Juan,Dela Cruz,juan@brite-tsi.com,technical,25000
-Maria,Santos,maria@brite-tsi.com,admin,20000</code>
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Required columns — first row must be the header</p>
+                <div class="mt-2 overflow-x-auto rounded-sm border border-gray-200 dark:border-slate-700">
+                    <table class="min-w-full text-xs text-gray-700 dark:text-slate-200">
+                        <thead class="bg-white dark:bg-slate-800 font-semibold">
+                            <tr>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">first_name</th>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">last_name</th>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">email</th>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">employee_type</th>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">monthly_salary</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="px-3 py-1.5">Juan</td><td class="px-3 py-1.5">Dela Cruz</td><td class="px-3 py-1.5">juan@brite-tsi.com</td><td class="px-3 py-1.5">technical</td><td class="px-3 py-1.5">25000</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5">Maria</td><td class="px-3 py-1.5">Santos</td><td class="px-3 py-1.5">maria@brite-tsi.com</td><td class="px-3 py-1.5">admin</td><td class="px-3 py-1.5">20000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
                 <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-gray-500 dark:text-slate-400">
                     <li><code>employee_type</code> must be <code>admin</code> or <code>technical</code> (defaults to admin).</li>
                     <li>Everyone imported gets the <strong>Employee</strong> role and the matching default schedule.</li>
@@ -22,8 +40,14 @@ Maria,Santos,maria@brite-tsi.com,admin,20000</code>
             <form method="POST" action="{{ route('employees.import.store') }}" enctype="multipart/form-data" class="mt-5 space-y-4">
                 @csrf
                 <div>
-                    <label for="file" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">CSV file</label>
-                    <input type="file" id="file" name="file" accept=".csv,text/csv" required
+                    <div class="mb-1.5 flex items-center justify-between gap-2">
+                        <label for="file" class="block text-sm font-medium text-gray-700 dark:text-slate-200">Excel file (.xlsx)</label>
+                        <a href="{{ route('employees.import.template') }}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
+                            Download template
+                        </a>
+                    </div>
+                    <input type="file" id="file" name="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required
                            class="block w-full text-sm text-gray-600 dark:text-slate-300 file:mr-3 file:rounded-xs file:border-0 file:bg-brand-600 file:px-4 file:py-2 file:text-white hover:file:bg-brand-700">
                     @error('file') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
                 </div>

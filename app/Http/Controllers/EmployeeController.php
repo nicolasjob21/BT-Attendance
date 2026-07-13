@@ -10,6 +10,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class EmployeeController extends Controller
 {
@@ -100,17 +105,49 @@ class EmployeeController extends Controller
         return back()->with('status', "{$employee->full_name} is now {$employee->status}.");
     }
 
-    // ---- Bulk CSV import ----
+    // ---- Bulk Excel (.xlsx) import ----
 
     public function importForm()
     {
         return view('employees.import');
     }
 
+    public function importTemplate()
+    {
+        $headers = ['first_name', 'last_name', 'email', 'employee_type', 'monthly_salary'];
+        $samples = [
+            ['Juan', 'Dela Cruz', 'juan@brite-tsi.com', 'technical', 25000],
+            ['Maria', 'Santos', 'maria@brite-tsi.com', 'admin', 20000],
+        ];
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Employees');
+        $sheet->fromArray([$headers, ...$samples], null, 'A1');
+
+        // Style the header row: bold, brand fill, centered.
+        $sheet->getStyle('A1:E1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:E1')->getFill()->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setARGB('FF0E7490'); // brand-700-ish teal
+        $sheet->getStyle('A1:E1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        foreach (range('A', 'E') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        $sheet->freezePane('A2'); // keep header visible while scrolling
+
+        $writer = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, 'employee-import-template.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
     public function import(Request $request)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt'],
+            'file' => ['required', 'file', 'mimes:xlsx,xls'],
             'default_password' => ['required', 'string', 'min:8'],
         ]);
 
@@ -118,18 +155,20 @@ class EmployeeController extends Controller
         $adminSched = $schedules->firstWhere('is_flexible', false);
         $flexSched = $schedules->firstWhere('is_flexible', true);
 
-        $handle = fopen($request->file('file')->getRealPath(), 'r');
-        $header = fgetcsv($handle);
-        $header = array_map(fn ($h) => Str::slug(trim((string) $h), '_'), $header ?: []);
+        $sheet = IOFactory::load($request->file('file')->getRealPath())->getActiveSheet();
+        $rows = $sheet->toArray(null, true, false, false); // 0-indexed rows/cols, raw (unformatted) values
+
+        $header = array_map(fn ($h) => Str::slug(trim((string) $h), '_'), $rows[0] ?? []);
 
         $created = 0;
         $skipped = 0;
         $errors = [];
         $rowNum = 1;
 
-        while (($row = fgetcsv($handle)) !== false) {
+        foreach (array_slice($rows, 1) as $row) {
             $rowNum++;
-            if (count(array_filter($row)) === 0) {
+            $row = array_map(fn ($c) => trim((string) $c), $row);
+            if (count(array_filter($row, fn ($c) => $c !== '')) === 0) {
                 continue; // blank line
             }
             $r = array_combine(array_slice($header, 0, count($row)), $row);
@@ -175,7 +214,6 @@ class EmployeeController extends Controller
             });
             $created++;
         }
-        fclose($handle);
 
         $msg = "Imported {$created} employees" . ($skipped ? ", skipped {$skipped}." : '.');
 

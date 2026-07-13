@@ -16,30 +16,30 @@
         @endif
 
         {{-- Toolbar --}}
-        <div class="flex flex-wrap items-center gap-3">
-            <form method="GET" action="{{ route('employees.index') }}" class="flex flex-1 flex-wrap items-center gap-2">
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <form method="GET" action="{{ route('employees.index') }}" class="grid grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
                 <input type="text" name="search" value="{{ $search }}" placeholder="Search name, email, or no.…"
-                       class="min-w-[200px] flex-1 rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
-                <select name="type" class="rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                       class="col-span-2 w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto sm:min-w-[200px] sm:flex-1">
+                <select name="type" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
                     <option value="">All types</option>
                     <option value="admin" @selected($type === 'admin')>Admin</option>
                     <option value="technical" @selected($type === 'technical')>Technical</option>
                 </select>
-                <select name="status" class="rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                <select name="status" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
                     <option value="">All statuses</option>
                     <option value="active" @selected($status === 'active')>Active</option>
                     <option value="inactive" @selected($status === 'inactive')>Inactive</option>
                     <option value="on_leave" @selected($status === 'on_leave')>On leave</option>
                 </select>
-                <button class="rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">Filter</button>
+                <button class="col-span-2 w-full rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 sm:w-auto">Filter</button>
                 @if($search || $type || $status)
-                    <a href="{{ route('employees.index') }}" class="text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
+                    <a href="{{ route('employees.index') }}" class="col-span-2 text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
                 @endif
             </form>
 
-            <div class="flex gap-2">
-                <a href="{{ route('employees.import') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Import CSV</a>
-                <a href="{{ route('employees.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">+ Add Employee</a>
+            <div class="grid grid-cols-2 gap-2 sm:flex">
+                <a href="{{ route('employees.import') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-center text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Import Excel</a>
+                <a href="{{ route('employees.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-center text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">+ Add Employee</a>
             </div>
         </div>
 

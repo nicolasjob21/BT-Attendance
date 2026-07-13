@@ -13,9 +13,46 @@
         @csrf
     </form>
 
-    <form method="post" action="{{ route('profile.update') }}" class="mt-6 space-y-6">
+    <form method="post" action="{{ route('profile.update') }}" enctype="multipart/form-data" class="mt-6 space-y-6"
+          x-data="{ preview: '{{ $user->profile_photo_url ?? '' }}', remove: false }">
         @csrf
         @method('patch')
+
+        {{-- Profile photo --}}
+        <div>
+            <x-input-label :value="__('Profile Photo')" />
+            <div class="mt-2 flex items-center gap-4">
+                {{-- Current photo / preview --}}
+                <template x-if="preview && !remove">
+                    <img :src="preview" alt="Profile photo"
+                         class="h-16 w-16 rounded-full object-cover ring-1 ring-gray-200 dark:ring-slate-700">
+                </template>
+                {{-- Initial fallback --}}
+                <span x-show="!preview || remove"
+                      class="grid h-16 w-16 place-items-center rounded-full bg-brand-100 text-xl font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
+                    {{ strtoupper(substr($user->name ?? '?', 0, 1)) }}
+                </span>
+
+                <div class="space-y-1.5">
+                    <label class="inline-block cursor-pointer rounded-xs bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700">
+                        {{ __('Choose photo') }}
+                        <input type="file" name="photo" accept="image/png,image/jpeg,image/webp" class="hidden"
+                               @change="remove = false; const f = $event.target.files[0]; if (f) preview = URL.createObjectURL(f);">
+                    </label>
+
+                    @if ($user->profile_photo_url)
+                        <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400">
+                            <input type="checkbox" name="remove_photo" value="1" x-model="remove"
+                                   class="rounded-xs border-gray-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500">
+                            {{ __('Remove current photo') }}
+                        </label>
+                    @endif
+
+                    <p class="text-xs text-gray-400 dark:text-slate-500">JPG, PNG or WebP · max 2&nbsp;MB.</p>
+                </div>
+            </div>
+            <x-input-error class="mt-2" :messages="$errors->get('photo')" />
+        </div>
 
         <div>
             <x-input-label for="name" :value="__('Name')" />
