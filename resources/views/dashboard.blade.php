@@ -16,10 +16,10 @@
                        x-init="setInterval(() => now = new Date(), 1000)">
                         <span x-text="now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' })">{{ now()->format('l, F j, Y') }}</span>
                         <span class="mx-1 opacity-60">·</span>
-                        <span class="tabular-nums font-semibold text-white" x-text="now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' })">{{ now()->format('g:i:s A') }}</span>
+                        <span class="tabular-nums text-lg font-bold text-white sm:text-xl" x-text="now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' })">{{ now()->format('g:i:s A') }}</span>
                     </p>
                     <h2 class="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-                        Welcome back, {{ $employee?->first_name ?? auth()->user()->name }}
+                        Welcome back, {{ Str::of(auth()->user()->name)->explode(' ')->first() }}
                     </h2>
                     <p class="mt-1 text-sm text-white/80">
                         @if($employee)

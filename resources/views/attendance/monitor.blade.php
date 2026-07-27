@@ -100,7 +100,9 @@
                                         @if($log)
                                             <div class="flex items-center justify-end gap-2 sm:justify-start">
                                                 @if($log->photo_path)
-                                                    <img src="{{ Storage::url($log->photo_path) }}" alt="selfie" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                                                    <img src="{{ Storage::url($log->photo_path) }}" alt="selfie"
+                                                         @click="$dispatch('open-lightbox', '{{ Storage::url($log->photo_path) }}')"
+                                                         class="h-8 w-8 shrink-0 cursor-zoom-in rounded-full object-cover transition hover:opacity-80 hover:ring-2 hover:ring-brand-500">
                                                 @endif
                                                 <div class="text-right sm:text-left">
                                                     <div class="font-medium text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}</div>

@@ -37,7 +37,9 @@
                             <tr>
                                 <td data-label="Photo" class="px-4 py-3">
                                     @if($log->photo_path)
-                                        <img src="{{ Storage::url($log->photo_path) }}" alt="selfie" class="h-10 w-10 rounded-full object-cover">
+                                        <img src="{{ Storage::url($log->photo_path) }}" alt="selfie"
+                                             @click="$dispatch('open-lightbox', '{{ Storage::url($log->photo_path) }}')"
+                                             class="h-10 w-10 cursor-zoom-in rounded-full object-cover transition hover:opacity-80 hover:ring-2 hover:ring-brand-500">
                                     @else
                                         <span class="grid h-10 w-10 place-items-center rounded-full bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500">—</span>
                                     @endif

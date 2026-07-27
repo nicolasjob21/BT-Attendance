@@ -50,11 +50,11 @@
            class="fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-gray-200 bg-white text-gray-600 transition-all duration-200 lg:translate-x-0 dark:border-hair dark:bg-deep dark:text-slate-300">
 
         {{-- Brand --}}
-        <div class="flex shrink-0 items-center justify-center gap-2 border-b border-gray-200 px-3 py-6 dark:border-hair">
-            <img src="{{ asset('images/brite-fav.png') }}" alt="Brite-Tech" class="hidden h-10 w-10 shrink-0"
+        <div class="flex h-16 shrink-0 items-center justify-center gap-2 border-b border-gray-200 px-3 dark:border-hair">
+            <img src="{{ asset('images/brite-fav.png') }}" alt="Brite-Tech" class="hidden h-9 w-9 shrink-0 object-contain"
                  :class="collapsed ? 'lg:block' : ''">
             <span :class="collapsed ? 'lg:hidden' : ''" class="flex items-center justify-center">
-                <img src="{{ asset('images/brite-logo.png') }}" alt="Brite-Tech" class="h-12 w-auto">
+                <img src="{{ asset('images/brite-logo.png') }}" alt="Brite-Tech" class="h-8 w-auto max-w-full object-contain">
             </span>
         </div>
 
@@ -201,6 +201,22 @@
         <main class="p-4 sm:p-6">
             {{ $slot }}
         </main>
+    </div>
+
+    {{-- Image lightbox (click any photo to enlarge) --}}
+    <div x-data="{ src: null }"
+         x-on:open-lightbox.window="src = $event.detail"
+         x-show="src" x-cloak
+         @click="src = null"
+         @keydown.escape.window="src = null"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-lg"
+         x-transition.opacity>
+        <img :src="src" alt="Enlarged photo"
+             class="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl">
+        <button @click="src = null" aria-label="Close"
+                class="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
     </div>
 </div>
 </body>
