@@ -55,15 +55,15 @@
 
             {{-- Summary --}}
             <div class="flex items-center gap-2 text-xs">
-                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">{{ $present }} present</span>
-                <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">{{ $absent }} absent</span>
+                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">{{ $present }} {{ $isRestDay ? 'worked' : 'present' }}</span>
+                <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">{{ $absent }} {{ $isRestDay ? 'day off' : 'absent' }}</span>
             </div>
         </div>
 
         <p class="text-xs text-gray-500 dark:text-slate-400">
             Showing {{ $day->isToday() ? 'today' : $day->format('l, F j, Y') }} · {{ $rows->count() }} employee(s)
             @if($isRestDay)
-                <span class="ml-1 inline-flex items-center rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">Rest day — all hours are overtime</span>
+                <span class="ml-1 inline-flex items-center rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">Rest day — day off; anyone on site is on rest-day OT (130%)</span>
             @endif
         </p>
 
@@ -91,7 +91,9 @@
                             @endphp
                             <tr>
                                 <td class="cell-head px-4 py-3">
-                                    <div class="font-medium text-gray-900 dark:text-slate-100">{{ $row['employee']->full_name }}</div>
+                                    <a href="{{ route('attendance.timesheet', ['employee' => $row['employee'], 'month' => $day->format('Y-m')]) }}"
+                                       class="font-medium text-gray-900 hover:text-brand-700 hover:underline dark:text-slate-100 dark:hover:text-brand-300"
+                                       title="Open this employee's monthly timesheet">{{ $row['employee']->full_name }}</a>
                                     <div class="text-xs text-gray-500 dark:text-slate-400">{{ $row['employee']->employee_no }}</div>
                                 </td>
 
@@ -106,9 +108,15 @@
                                                 @endif
                                                 <div class="text-right sm:text-left">
                                                     <div class="font-medium text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}</div>
-                                                    @if($log->latitude && $log->longitude)
-                                                        <a href="https://www.google.com/maps?q={{ $log->latitude }},{{ $log->longitude }}" target="_blank" rel="noopener"
-                                                           class="text-xs text-brand-600 hover:underline dark:text-brand-300">View map</a>
+                                                    <div class="text-xs text-gray-500 dark:text-slate-400">
+                                                        @if($log->site){{ $log->site->name }}@endif
+                                                        @if($log->latitude && $log->longitude)
+                                                            <a href="https://www.google.com/maps?q={{ $log->latitude }},{{ $log->longitude }}" target="_blank" rel="noopener"
+                                                               class="text-brand-600 hover:underline dark:text-brand-300">{{ $log->site ? '· map' : 'View map' }}</a>
+                                                        @endif
+                                                    </div>
+                                                    @if($log->location_status)
+                                                        <x-location-badge :status="$log->location_status" :verification="$log->location_verification_status" compact class="mt-0.5" />
                                                     @endif
                                                 </div>
                                             </div>
@@ -144,6 +152,8 @@
                                                 <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Present</span>
                                             @elseif($status === 'incomplete')
                                                 <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">No time out</span>
+                                            @elseif($isRestDay)
+                                                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-400 dark:bg-slate-700 dark:text-slate-400">Day off</span>
                                             @else
                                                 <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-300">Absent</span>
                                             @endif
@@ -151,6 +161,24 @@
                                             @if($otMins > 0 && $status === 'complete')
                                                 <span class="inline-flex items-center rounded-full bg-accent-100 px-2.5 py-0.5 text-xs font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">{{ !empty($row['rest_day']) ? 'Rest-day OT' : 'Overtime' }}</span>
                                             @endif
+                                            @if(!empty($row['rest_day']) && $in)
+                                                @if($row['rest_day_request']?->status === 'approved')
+                                                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" title="Approved rest-day work request">OT approved</span>
+                                                @elseif($row['rest_day_request'])
+                                                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">OT request pending</span>
+                                                @else
+                                                    <a href="{{ route('overtime.index') }}" title="Weekend work is paid only through an approved rest-day OT request. The employee can still file it up to 3 days later."
+                                                       class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 hover:underline dark:bg-rose-900/40 dark:text-rose-200">No OT request</a>
+                                                @endif
+                                            @endif
+
+                                            @foreach($row['location_exceptions'] ?? [] as $ex)
+                                                @if($ex->location_verification_status === 'pending')
+                                                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Location pending</span>
+                                                @elseif($ex->location_verification_status === null)
+                                                    <span class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Location exception</span>
+                                                @endif
+                                            @endforeach
 
                                             @if(!empty($row['needs_verification']))
                                                 @if($vstatus === 'approved')
@@ -163,6 +191,48 @@
                                                 @endif
                                             @endif
                                         </div>
+
+                                        {{-- Location exception review: an out-of-area / no-GPS / weak-fix punch --}}
+                                        @foreach($row['location_exceptions'] ?? [] as $ex)
+                                            @php $lv = $ex->location_verification_status; @endphp
+                                            <div class="w-full max-w-xs space-y-1 rounded-xs border border-gray-200 px-2.5 py-2 text-xs dark:border-slate-700">
+                                                <div class="flex flex-wrap items-center justify-between gap-1">
+                                                    <span class="font-medium text-gray-700 dark:text-slate-200">{{ $ex->log_type === 'time_in' ? 'Time in' : 'Time out' }} {{ $ex->logged_at->format('g:i A') }}</span>
+                                                    <x-location-badge :status="$ex->location_status" :verification="$lv" compact />
+                                                </div>
+                                                <p class="text-gray-500 dark:text-slate-400">{{ $ex->location_validation_message }}</p>
+                                                @if($ex->assignedSite)
+                                                    <p class="text-gray-500 dark:text-slate-400">Assigned project: {{ $ex->assignedSite->name }}</p>
+                                                @endif
+                                                @if($ex->location_reason)
+                                                    <p class="text-gray-700 dark:text-slate-200">Employee: “{{ $ex->location_reason }}”</p>
+                                                @endif
+                                                @if($lv && $lv !== 'pending')
+                                                    <p class="text-gray-500 dark:text-slate-400">
+                                                        HR {{ $lv }}@if($ex->location_remarks): “{{ $ex->location_remarks }}”@endif
+                                                        <span class="block text-[11px] text-gray-400 dark:text-slate-500">— {{ $ex->locationVerifier?->name }}@if($ex->location_verified_at), {{ $ex->location_verified_at->format('M j, g:i A') }}@endif</span>
+                                                    </p>
+                                                    @can('approve requests')
+                                                        <button type="button" x-data @click="$refs.lv{{ $ex->id }}.classList.toggle('hidden')"
+                                                                class="text-[11px] text-brand-600 hover:underline dark:text-brand-300">Change decision</button>
+                                                    @endcan
+                                                @endif
+                                                @can('approve requests')
+                                                    <form method="POST" action="{{ route('attendance.verify-location', $ex) }}" x-ref="lv{{ $ex->id }}"
+                                                          class="{{ ($lv && $lv !== 'pending') ? 'hidden ' : '' }}space-y-1.5 pt-1">
+                                                        @csrf
+                                                        <input type="text" name="remarks" maxlength="500" value="{{ $ex->location_remarks }}" placeholder="Remarks (optional)"
+                                                               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
+                                                        <div class="flex gap-1.5">
+                                                            <button name="decision" value="approved"
+                                                                    class="rounded-xs bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Approve location</button>
+                                                            <button name="decision" value="rejected"
+                                                                    class="rounded-xs border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30">Reject</button>
+                                                        </div>
+                                                    </form>
+                                                @endcan
+                                            </div>
+                                        @endforeach
 
                                         {{-- Verification detail / action --}}
                                         @if(!empty($row['needs_verification']))

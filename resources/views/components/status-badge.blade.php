@@ -11,6 +11,9 @@ $map = [
     'open'       => 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
     'processing' => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
     'closed'     => 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+    'completed'  => 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+    'ended'      => 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+    'cancelled'  => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
 ];
 $classes = $map[$status] ?? 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300';
 @endphp

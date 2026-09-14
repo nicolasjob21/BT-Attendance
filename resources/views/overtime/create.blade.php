@@ -1,55 +1,66 @@
 <x-app-layout>
     <x-slot name="header">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">File Overtime</h1>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Request Overtime</h1>
     </x-slot>
 
     <div class="mx-auto max-w-xl" x-data="otForm()">
         <form method="POST" action="{{ route('overtime.store') }}" class="space-y-5 card p-6">
             @csrf
 
-            <div class="grid gap-4 sm:grid-cols-2">
+            <p class="rounded-xs border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:border-brand-800 dark:bg-brand-900/30 dark:text-brand-200" x-show="!isRestDay()">
+                Request overtime <strong>before</strong> you work it. Once approved, your actual overtime hours are taken from your clock-out that day — up to the hours approved here. Overtime is paid one cutoff later (1–15 OT on the 16–30 payroll; 16–30 OT on the next 1–15 payroll).
+            </p>
+
+            <p class="rounded-xs border border-accent-200 bg-accent-50 px-3 py-2 text-xs text-accent-800 dark:border-accent-800 dark:bg-accent-900/30 dark:text-accent-200" x-show="isRestDay()" x-cloak>
+                <strong>Rest-day work.</strong> Saturday and Sunday are days off, so <strong>every hour</strong> you work on site that day counts as overtime at 130%. Enter your planned shift (e.g. 8:00 AM – 5:00 PM) and what the deployment is for. Your actual hours come from your clock-in/out that day.
+            </p>
+
+            <div class="grid gap-4 sm:grid-cols-3">
                 <div>
                     <label for="ot_date" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Date</label>
-                    <input type="date" id="ot_date" name="ot_date" value="{{ old('ot_date') }}" required
-                           x-model="date" @change="fetchPreview()"
-                           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                    <input type="date" id="ot_date" name="ot_date" value="{{ old('ot_date', now()->toDateString()) }}" min="{{ $minDate }}" required
+                           x-model="date" @change="applyDefaults()"
+                           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
                     @error('ot_date') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
                 </div>
                 <div>
-                    <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">
-                        Overtime hours <span class="font-normal text-gray-400 dark:text-slate-500">(auto-calculated)</span>
-                    </label>
-                    <div class="flex h-[38px] items-center gap-2 rounded-xs border border-gray-300 bg-gray-50 px-3 dark:border-slate-600 dark:bg-slate-800/60">
-                        <span class="text-base font-semibold tabular-nums text-gray-900 dark:text-slate-100"
-                              x-text="loading ? '…' : (hours !== null ? hours + ' h' : '—')"></span>
-                        <span class="text-xs text-gray-400 dark:text-slate-500" x-show="!loading && hours === null">select a date</span>
-                    </div>
+                    <label for="planned_start" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200" x-text="isRestDay() ? 'Shift starts' : 'From'">From</label>
+                    <input type="time" id="planned_start" name="planned_start" value="{{ old('planned_start', $defaultStart) }}" required
+                           x-model="start"
+                           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+                    @error('planned_start') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label for="planned_end" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200" x-text="isRestDay() ? 'Shift ends' : 'To'">To</label>
+                    <input type="time" id="planned_end" name="planned_end" value="{{ old('planned_end') }}" required
+                           x-model="end"
+                           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+                    @error('planned_end') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
                 </div>
             </div>
 
-            {{-- Auto-calc explanation --}}
-            <p class="-mt-2 text-xs" :class="ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'"
-               x-show="message" x-text="message" x-cloak></p>
-
-            <div>
-                <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">
-                    Overtime type <span class="font-normal text-gray-400 dark:text-slate-500">(auto-classified from the date)</span>
-                </label>
-                <div class="flex h-[38px] items-center rounded-xs border border-gray-300 bg-gray-50 px-3 text-sm dark:border-slate-600 dark:bg-slate-800/60">
-                    <span class="font-medium text-gray-900 dark:text-slate-100" x-text="otTypeLabel || '—'"></span>
-                </div>
+            {{-- Derived summary --}}
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xs border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800/60">
+                <span class="text-gray-500 dark:text-slate-400">Requested:</span>
+                <span class="font-semibold tabular-nums text-gray-900 dark:text-slate-100" x-text="hours !== null ? hours + ' h' : '—'"></span>
+                <span class="text-gray-300 dark:text-slate-600">·</span>
+                <span class="text-gray-700 dark:text-slate-200" x-text="typeLabel()"></span>
+                <span class="text-xs text-rose-600" x-show="hours !== null && (hours <= 0 || hours > 12)" x-cloak>Window must be between 15 minutes and 12 hours.</span>
             </div>
 
             <div>
-                <label for="reason" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Reason <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
-                <textarea id="reason" name="reason" rows="3"
+                <label for="reason" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200" x-text="isRestDay() ? 'What is the weekend deployment for? *' : 'What will you do during the overtime? *'">What will you do during the overtime? <span class="text-rose-500">*</span></label>
+                <textarea id="reason" name="reason" rows="4" required minlength="10" maxlength="1000"
+                          :placeholder="isRestDay() ? 'e.g. Saturday site work at Project Site A — client shutdown window for panel installation.' : 'e.g. Finish cable termination at Project Site A, 3rd floor — client inspection tomorrow morning.'"
                           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">{{ old('reason') }}</textarea>
+                <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Your approver sees this when deciding. Be specific about the task and why it can't wait.</p>
+                @error('reason') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
             </div>
 
             <div class="flex justify-end gap-2">
                 <a href="{{ route('overtime.index') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Cancel</a>
-                <button type="submit" :disabled="!ok || loading"
-                        class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600 disabled:cursor-not-allowed disabled:opacity-50">Submit request</button>
+                <button type="submit" :disabled="!valid()"
+                        class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600 disabled:cursor-not-allowed disabled:opacity-50">Send for approval</button>
             </div>
         </form>
     </div>
@@ -57,36 +68,51 @@
     <script>
         function otForm() {
             return {
-                date: @json(old('ot_date') ?? ''),
-                hours: null,
-                otTypeLabel: '',
-                ok: false,
-                loading: false,
-                message: '',
+                date: @json(old('ot_date', now()->toDateString())),
+                start: @json(old('planned_start', $defaultStart)),
+                end: @json(old('planned_end', '')),
+                weekdayStart: @json($defaultStart),
+                restDayStart: @json($restDayStart),
+                restDayEnd: @json($restDayEnd),
+                touched: @json((bool) old('planned_end')),
 
-                init() {
-                    if (this.date) this.fetchPreview();
+                isRestDay() {
+                    if (!this.date) return false;
+                    const d = new Date(this.date + 'T00:00:00').getDay();
+                    return d === 0 || d === 6;
                 },
 
-                async fetchPreview() {
-                    if (!this.date) { this.hours = null; this.otTypeLabel = ''; this.ok = false; this.message = ''; return; }
-                    this.loading = true;
-                    try {
-                        const url = new URL(@json(route('overtime.preview')), window.location.origin);
-                        url.searchParams.set('date', this.date);
-                        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                        if (!res.ok) throw new Error('lookup failed');
-                        const data = await res.json();
-                        this.hours = data.hours;
-                        this.otTypeLabel = data.ot_type_label;
-                        this.ok = data.ok;
-                        this.message = data.message;
-                    } catch (e) {
-                        this.hours = null; this.otTypeLabel = ''; this.ok = false;
-                        this.message = 'Could not calculate overtime for that date. Try again.';
-                    } finally {
-                        this.loading = false;
-                    }
+                // Swap between "stay late" and "full shift" defaults until the
+                // employee has edited the times themselves.
+                applyDefaults() {
+                    if (this.touched) return;
+                    if (this.isRestDay()) { this.start = this.restDayStart; this.end = this.restDayEnd; }
+                    else { this.start = this.weekdayStart; this.end = ''; }
+                },
+
+                init() {
+                    this.applyDefaults();
+                    this.$watch('start', () => this.touched = true);
+                    this.$watch('end', () => this.touched = true);
+                },
+
+                // Mirrors the server: end before/equal start rolls over midnight.
+                get hours() {
+                    if (!this.start || !this.end) return null;
+                    const [sh, sm] = this.start.split(':').map(Number);
+                    const [eh, em] = this.end.split(':').map(Number);
+                    let mins = (eh * 60 + em) - (sh * 60 + sm);
+                    if (mins <= 0) mins += 24 * 60;
+                    return Math.round(mins / 60 * 100) / 100;
+                },
+
+                typeLabel() {
+                    if (!this.date) return '';
+                    return this.isRestDay() ? 'Rest-day work · 130% (all hours)' : 'Regular OT · 125%';
+                },
+
+                valid() {
+                    return this.date && this.hours !== null && this.hours > 0 && this.hours <= 12;
                 },
             };
         }

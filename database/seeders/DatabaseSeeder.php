@@ -89,22 +89,29 @@ class DatabaseSeeder extends Seeder
 
     private function seedSites(): void
     {
+        // The main office is a permanent authorized attendance location for
+        // everyone; project sites are active only while the project runs.
         Site::create([
             'name' => 'Brite TSI — Head Office',
-            'address' => 'Metro Manila, Philippines',
-            'latitude' => 14.5995000,
-            'longitude' => 120.9842000,
+            'type' => 'office',
+            'address' => '2189 G. Tuazon St, cor Santissima St, Sampaloc, Manila, 1008 Metro Manila',
+            // Corner of G. Tuazon St and Santisima Trinidad St (geocoded via OSM).
+            'latitude' => 14.6108000,
+            'longitude' => 121.0049000,
             'geofence_radius_m' => 150,
             'is_headquarters' => true,
+            'status' => 'active',
         ]);
 
         Site::create([
-            'name' => 'Sample Client Site',
+            'name' => 'Project Site A — Quezon City',
+            'type' => 'project_site',
             'client_name' => 'ACME Corp',
             'address' => 'Quezon City, Philippines',
             'latitude' => 14.6760000,
             'longitude' => 121.0437000,
             'geofence_radius_m' => 200,
+            'status' => 'active',
         ]);
     }
 

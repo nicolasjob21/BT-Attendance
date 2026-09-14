@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceLog;
 use App\Models\Employee;
 use App\Models\Site;
+use App\Models\User;
+use App\Notifications\LocationExceptionFlagged;
 use App\Notifications\RequestReviewed;
 use App\Services\AttendanceSoftCopy;
-use App\Support\Geo;
+use App\Services\GeofenceService;
 use App\Support\WorkHours;
 use App\Support\WorkSessions;
 use Illuminate\Http\Request;
@@ -18,7 +20,7 @@ use Illuminate\Support\Str;
 class AttendanceController extends Controller
 {
     /** Clock in/out capture screen. */
-    public function create(Request $request)
+    public function create(Request $request, GeofenceService $geofence)
     {
         $employee = $request->user()->employee;
         abort_unless($employee, 403, 'No employee profile linked to this account.');
@@ -26,65 +28,97 @@ class AttendanceController extends Controller
         $lastLog = $employee->attendanceLogs()->latest('logged_at')->first();
         $nextAction = ($lastLog && $lastLog->log_type === 'time_in') ? 'time_out' : 'time_in';
 
-        // Registered work sites drive the on-map geofences the employee must stand in.
-        $sites = Site::query()
-            ->get(['id', 'name', 'latitude', 'longitude', 'geofence_radius_m']);
+        // Every ACTIVE authorized location (main office + live project sites +
+        // temporary venues) is drawn on the map. The employee may punch at any
+        // of them; the assigned project is only highlighted.
+        $sites = Site::query()->activeOn()
+            ->orderByRaw("type = 'office' desc")->orderBy('name')
+            ->get(['id', 'name', 'type', 'address', 'latitude', 'longitude', 'geofence_radius_m']);
 
-        $enforceGeofence = (bool) config('attendance.enforce_geofence');
+        $assignedSite = $employee->assignedSite();
 
-        return view('attendance.create', compact('lastLog', 'nextAction', 'sites', 'enforceGeofence'));
+        return view('attendance.create', [
+            'lastLog' => $lastLog,
+            'nextAction' => $nextAction,
+            'employeeName' => $employee->full_name,
+            'sites' => $sites,
+            'assignedSiteId' => $assignedSite?->id,
+            'assignedSiteName' => $assignedSite?->name,
+            'geofenceMode' => $geofence->mode(),
+            'minAccuracy' => $geofence->minAccuracyMeters(),
+        ]);
     }
 
     /** Persist a clock event with the captured GPS location. */
-    public function store(Request $request)
+    public function store(Request $request, GeofenceService $geofence)
     {
         $employee = $request->user()->employee;
         abort_unless($employee, 403);
 
         $data = $request->validate([
             'log_type' => ['required', 'in:time_in,time_out'],
-            'latitude' => ['required', 'numeric', 'between:-90,90'],
-            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            // Coordinates are nullable so a GPS-denied device can still submit;
+            // the punch is then recorded as "gps_unavailable" for HR review
+            // (or rejected outright in strict mode).
+            'latitude' => ['nullable', 'required_with:longitude', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'required_with:latitude', 'numeric', 'between:-180,180'],
+            'gps_accuracy' => ['nullable', 'numeric', 'min:0'],
+            'location_reason' => ['nullable', 'string', 'max:500'],
             'photo' => ['required', 'string'], // base64 data URL from the camera
             'synced_offline' => ['sometimes', 'boolean'],
         ]);
 
-        // Server-side geofence check. The coordinates are validated here against
-        // the registered work sites regardless of what the client sent, so a
-        // spoofed or hand-placed pin can still be caught.
-        [$site, $distance, $withinGeofence] = $this->matchGeofence(
-            (float) $data['latitude'],
-            (float) $data['longitude'],
-        );
+        $lat = isset($data['latitude']) ? (float) $data['latitude'] : null;
+        $lng = isset($data['longitude']) ? (float) $data['longitude'] : null;
+        $accuracy = isset($data['gps_accuracy']) ? (float) $data['gps_accuracy'] : null;
 
-        if (config('attendance.enforce_geofence') && ! $withinGeofence) {
-            $howFar = $distance !== null
-                ? 'about ' . number_format($distance) . ' m from the nearest work site'
-                : 'outside every registered work site';
+        // Server-side geofence check against every active location. The
+        // coordinates are validated here regardless of what the client showed,
+        // so a spoofed or hand-placed pin can still be caught.
+        $result = $geofence->evaluate($employee, $lat, $lng, $accuracy);
 
+        if ($geofence->blocks($result)) {
             return back()->withErrors([
-                'latitude' => "You appear to be {$howFar}. You must be on-site to "
+                'latitude' => $result->message . ' You must be inside an authorized work site to '
                     . ($data['log_type'] === 'time_in' ? 'clock in.' : 'clock out.'),
             ]);
+        }
+
+        // An out-of-area punch needs the employee's own explanation so HR has
+        // something to review; nothing to explain when the fix is verified.
+        $reason = $result->isException() ? trim((string) ($data['location_reason'] ?? '')) : '';
+        if ($result->isException() && $reason === '') {
+            return back()->withErrors([
+                'location_reason' => 'Please tell HR why you are clocking ' . ($data['log_type'] === 'time_in' ? 'in' : 'out')
+                    . ' outside the authorized area (e.g. approved temporary location, GPS inaccurate).',
+            ])->withInput($request->except('photo'));
         }
 
         $photoPath = $this->storePhoto($data['photo'], $employee->id);
 
         $log = AttendanceLog::create([
             'employee_id' => $employee->id,
-            'site_id' => $site?->id,
             'log_type' => $data['log_type'],
             'logged_at' => Carbon::now(),
-            'latitude' => $data['latitude'],
-            'longitude' => $data['longitude'],
-            'distance_m' => $distance !== null ? round($distance, 2) : null,
-            'within_geofence' => $withinGeofence,
+            'latitude' => $lat,
+            'longitude' => $lng,
             'photo_path' => $photoPath,
             'synced_offline' => (bool) ($data['synced_offline'] ?? false),
-        ]);
+            'location_reason' => $reason !== '' ? $reason : null,
+            'location_verification_status' => $geofence->initialVerificationStatus($result),
+        ] + $result->toLogAttributes());
 
         $verb = $data['log_type'] === 'time_in' ? 'Clocked in' : 'Clocked out';
         $message = "{$verb} at " . Carbon::now()->format('g:i A') . '.';
+
+        if ($result->status === GeofenceService::AUTHORIZED_ALTERNATE_LOCATION) {
+            $message .= " Recorded at {$result->site->name} (your assigned project is {$result->assignedSite->name}).";
+        } elseif ($result->isException()) {
+            $message .= $log->location_verification_status === 'pending'
+                ? ' Your location could not be verified — this punch is pending HR approval.'
+                : ' Your location could not be verified — HR has been notified to review it.';
+            $this->notifyReviewers($log);
+        }
 
         // Early in is the employee's own choice and does not affect pay — just
         // let them know it was recorded as an early clock-in.
@@ -135,7 +169,7 @@ class AttendanceController extends Controller
         abort_unless($employee, 403);
 
         $logs = $employee->attendanceLogs()
-            ->with('site')
+            ->with(['site', 'assignedSite', 'locationVerifier:id,name'])
             ->latest('logged_at')
             ->paginate(20);
 
@@ -174,7 +208,7 @@ class AttendanceController extends Controller
 
         $logsByEmployee = AttendanceLog::whereBetween('logged_at', [$windowStart, $windowEnd])
             ->whereIn('employee_id', $employees->pluck('id'))
-            ->with('otVerifier:id,name')
+            ->with(['otVerifier:id,name', 'site:id,name', 'assignedSite:id,name', 'locationVerifier:id,name'])
             ->orderBy('logged_at')
             ->get()
             ->groupBy('employee_id');
@@ -197,8 +231,20 @@ class AttendanceController extends Controller
             $closingOut = WorkSessions::closingOut($sessions);
             $needsVerification = WorkHours::needsVerification($minutes) && $closingOut !== null;
 
+            // Punches whose location evidence needs HR's eye (outside every
+            // fence, no GPS, weak fix) — regardless of which session they fall in.
+            $locationExceptions = $group->filter(fn (AttendanceLog $l) => $l->hasLocationException())->values();
+
+            // Weekend site work is paid only through an approved rest-day OT
+            // request, so surface anyone working today without one.
+            $restDayRequest = $isRestDay && $sessions
+                ? $emp->overtimeRequests()->whereDate('ot_date', $date)->whereIn('status', ['pending', 'approved'])->first()
+                : null;
+
             return [
                 'employee' => $emp,
+                'rest_day_request' => $restDayRequest,
+                'location_exceptions' => $locationExceptions,
                 'time_in' => $sessions[0]['in'] ?? null,
                 'time_out' => $closingOut,
                 'minutes' => $minutes,
@@ -225,6 +271,121 @@ class AttendanceController extends Controller
             'present' => $present,
             'absent' => $rows->count() - $present,
             'isRestDay' => $isRestDay,
+        ]);
+    }
+
+    /**
+     * Per-employee monthly timesheet: one row per calendar day with the
+     * first time-in, closing time-out, hours (regular / OT), location
+     * status and leave, plus month totals. Employees may view their own;
+     * HR/Admin anyone's.
+     */
+    public function timesheet(Request $request, Employee $employee)
+    {
+        $user = $request->user();
+        abort_unless($employee->id === $user->employee?->id || $user->can('view team reports'), 403);
+
+        $month = $request->filled('month')
+            ? Carbon::createFromFormat('Y-m', $request->input('month'))->startOfMonth()
+            : Carbon::today()->startOfMonth();
+        $monthEnd = $month->copy()->endOfMonth();
+        $today = Carbon::today();
+
+        // Window runs one day past the month so an overnight shift that starts
+        // on the last day can still find its time-out.
+        $logs = $employee->attendanceLogs()
+            ->whereBetween('logged_at', [$month->copy()->startOfDay(), $monthEnd->copy()->addDay()->endOfDay()])
+            ->with(['site:id,name', 'otVerifier:id,name'])
+            ->orderBy('logged_at')
+            ->get();
+        $allSessions = WorkSessions::pair($logs);
+
+        $leaves = $employee->leaveRequests()
+            ->where('status', 'approved')
+            ->where('date_from', '<=', $monthEnd->toDateString())
+            ->where('date_to', '>=', $month->toDateString())
+            ->get();
+
+        $approvedOt = $employee->overtimeRequests()
+            ->where('status', 'approved')
+            ->whereBetween('ot_date', [$month->toDateString(), $monthEnd->toDateString()])
+            ->get()
+            ->keyBy(fn ($ot) => $ot->ot_date->toDateString());
+
+        $hasFixedSchedule = (bool) $employee->schedule?->time_in;
+
+        $days = [];
+        $totals = ['worked' => 0, 'regular' => 0, 'overtime' => 0, 'present' => 0, 'absent' => 0, 'leave' => 0, 'exceptions' => 0];
+
+        for ($d = $month->copy(); $d->lte($monthEnd); $d->addDay()) {
+            $date = $d->toDateString();
+            $isRestDay = $d->isWeekend();
+            $sessions = WorkSessions::startingOn($allSessions, $date);
+            $minutes = WorkSessions::workedMinutes($sessions);
+            $split = WorkHours::split($minutes, $isRestDay);
+            $in = $sessions[0]['in'] ?? null;
+            $out = WorkSessions::closingOut($sessions);
+            $leave = $leaves->first(fn ($l) => $l->date_from->lte($d) && $l->date_to->gte($d));
+
+            $punches = collect($sessions)->flatMap(fn ($s) => [$s['in'], $s['out']])->filter();
+            $exception = $punches->first(fn (AttendanceLog $l) => $l->hasLocationException());
+
+            $status = match (true) {
+                $in && $out => 'present',
+                $in && ! $out => $d->isToday() ? 'open' : 'incomplete',
+                (bool) $leave => 'leave',
+                $isRestDay => 'rest',
+                $d->gt($today) => 'upcoming',
+                default => 'absent',
+            };
+
+            if (in_array($status, ['present', 'incomplete', 'open'], true)) {
+                $totals['present']++;
+            } elseif ($status === 'absent') {
+                $totals['absent']++;
+            } elseif ($status === 'leave') {
+                $totals['leave']++;
+            }
+            $totals['worked'] += $minutes;
+            $totals['regular'] += $split['regular'];
+            $totals['overtime'] += $split['overtime'];
+            if ($exception) {
+                $totals['exceptions']++;
+            }
+
+            $days[] = [
+                'date' => $d->copy(),
+                'rest_day' => $isRestDay,
+                'status' => $status,
+                'in' => $in,
+                'out' => $out,
+                'sessions' => count($sessions),
+                'minutes' => $minutes,
+                'regular' => $split['regular'],
+                'overtime' => $split['overtime'],
+                'leave' => $leave,
+                'ot_request' => $approvedOt->get($date),
+                'exception' => $exception,
+                'site' => $in?->site?->name,
+            ];
+        }
+
+        // Expected working days so far (Mon–Fri up to today, within the month)
+        $expected = 0;
+        for ($d = $month->copy(); $d->lte($monthEnd) && $d->lte($today); $d->addDay()) {
+            if (! $d->isWeekend()) {
+                $expected++;
+            }
+        }
+
+        return view('attendance.timesheet', [
+            'employee' => $employee->loadMissing('schedule'),
+            'month' => $month,
+            'days' => $days,
+            'totals' => $totals,
+            'expectedDays' => $expected,
+            'hasFixedSchedule' => $hasFixedSchedule,
+            'canReview' => $user->can('view team reports'),
         ]);
     }
 
@@ -258,31 +419,46 @@ class AttendanceController extends Controller
     }
 
     /**
-     * Find the nearest registered site to a punch and decide if it falls inside
-     * that site's geofence.
-     *
-     * @return array{0: ?Site, 1: ?float, 2: bool}  [nearestSite, distanceMetres, withinGeofence]
+     * HR reviews a punch whose location could not be verified (outside every
+     * geofence, GPS unavailable, or a low-accuracy fix) and approves or
+     * rejects it as legitimate attendance.
      */
-    private function matchGeofence(float $lat, float $lng): array
+    public function verifyLocation(Request $request, AttendanceLog $log)
     {
-        $nearest = null;
-        $nearestDistance = null;
+        abort_unless($log->hasLocationException(), 422, 'This punch has no location exception to review.');
 
-        foreach (Site::all() as $site) {
-            $distance = Geo::distanceMeters($lat, $lng, (float) $site->latitude, (float) $site->longitude);
-            if ($nearestDistance === null || $distance < $nearestDistance) {
-                $nearest = $site;
-                $nearestDistance = $distance;
-            }
+        $data = $request->validate([
+            'decision' => ['required', 'in:approved,rejected'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $log->update([
+            'location_verification_status' => $data['decision'],
+            'location_remarks' => $data['remarks'] ?? null,
+            'location_verified_by' => $request->user()->id,
+            'location_verified_at' => now(),
+        ]);
+
+        $log->employee->user?->notify(
+            new RequestReviewed('Attendance location', $data['decision'], route('attendance.index')),
+        );
+
+        $when = $log->logged_at->format('M j, g:i A');
+
+        return back()->with('status', "Location {$data['decision']} for " . optional($log->employee)->full_name . " ({$when}).");
+    }
+
+    /** Let everyone who can review attendance know about a location exception. */
+    private function notifyReviewers(AttendanceLog $log): void
+    {
+        $employee = $log->employee;
+        $reviewers = User::permission('approve requests')
+            ->where('id', '!=', $employee->user_id)
+            ->get();
+
+        foreach ($reviewers as $reviewer) {
+            $reviewer->notify(new LocationExceptionFlagged($log));
         }
-
-        if ($nearest === null) {
-            return [null, null, false];
-        }
-
-        $within = $nearestDistance <= (float) $nearest->geofence_radius_m;
-
-        return [$nearest, $nearestDistance, $within];
     }
 
     /** Decode a base64 data-URL selfie and store it on the public disk. */

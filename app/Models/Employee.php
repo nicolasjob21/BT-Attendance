@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Employee extends Model
 {
@@ -50,6 +51,27 @@ class Employee extends Model
     public function attendanceLogs(): HasMany
     {
         return $this->hasMany(AttendanceLog::class);
+    }
+
+    public function projectAssignments(): HasMany
+    {
+        return $this->hasMany(EmployeeProjectAssignment::class)->latest('start_date');
+    }
+
+    /**
+     * The project assignment in force today, if any. Null is a valid state
+     * (office staff, between projects) and still allows main-office attendance.
+     */
+    public function activeAssignment(): HasOne
+    {
+        return $this->hasOne(EmployeeProjectAssignment::class)
+            ->ofMany(['start_date' => 'max', 'id' => 'max'], fn ($q) => $q->activeOn());
+    }
+
+    /** Site the employee is currently deployed to, or null. */
+    public function assignedSite(): ?Site
+    {
+        return $this->activeAssignment?->site;
     }
 
     public function leaveRequests(): HasMany

@@ -166,7 +166,7 @@
                     <span class="icon-chip bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300">
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 9v6M9 12h6"/></svg>
                     </span>
-                    <span class="text-sm font-medium text-gray-800 dark:text-slate-200">File overtime</span>
+                    <span class="text-sm font-medium text-gray-800 dark:text-slate-200">Request overtime</span>
                 </a>
             </div>
         </div>

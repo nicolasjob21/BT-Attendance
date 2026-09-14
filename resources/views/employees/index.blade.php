@@ -55,6 +55,7 @@
                             <th class="px-4 py-3">Type</th>
                             <th class="px-4 py-3">Role</th>
                             <th class="px-4 py-3">Schedule</th>
+                            <th class="px-4 py-3">Project site</th>
                             <th class="px-4 py-3 text-right">Monthly salary</th>
                             <th class="px-4 py-3">Status</th>
                             <th class="px-4 py-3 text-right">Actions</th>
@@ -75,10 +76,20 @@
                                 </td>
                                 <td data-label="Role" class="px-4 py-3 capitalize text-gray-600 dark:text-slate-300">{{ $emp->user?->getRoleNames()->first() ?? '—' }}</td>
                                 <td data-label="Schedule" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ $emp->schedule?->name ?? '—' }}</td>
+                                <td data-label="Project site" class="px-4 py-3 text-gray-700 dark:text-slate-200">
+                                    @if($emp->activeAssignment?->site)
+                                        {{ $emp->activeAssignment->site->name }}
+                                    @else
+                                        <span class="text-gray-400 dark:text-slate-500">Office / unassigned</span>
+                                    @endif
+                                </td>
                                 <td data-label="Monthly salary" class="px-4 py-3 text-right tabular-nums text-gray-900 dark:text-slate-100">₱{{ number_format($emp->monthly_salary, 2) }}</td>
                                 <td data-label="Status" class="px-4 py-3"><x-status-badge :status="$emp->status" /></td>
                                 <td data-label="Actions" class="px-4 py-3 text-right">
                                     <div class="flex justify-end gap-3">
+                                        @can('view team reports')
+                                            <a href="{{ route('attendance.timesheet', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Timesheet</a>
+                                        @endcan
                                         @can('run payroll')
                                             <a href="{{ route('employees.salary-history', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Salary history</a>
                                         @endcan
@@ -87,7 +98,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="8" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No employees match your filters.</td></tr>
+                            <tr><td colspan="9" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No employees match your filters.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\Schedule;
+use App\Models\Site;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,7 @@ class EmployeeController extends Controller
         $type = $request->string('type')->toString();
         $status = $request->string('status')->toString();
 
-        $employees = Employee::with(['schedule', 'supervisor', 'user'])
+        $employees = Employee::with(['schedule', 'supervisor', 'user', 'activeAssignment.site:id,name'])
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('first_name', 'like', "%{$search}%")
@@ -72,7 +73,13 @@ class EmployeeController extends Controller
 
     public function edit(Employee $employee)
     {
-        return view('employees.edit', array_merge($this->formData(), compact('employee')));
+        $employee->load(['projectAssignments.site:id,name,status', 'projectAssignments.creator:id,name']);
+
+        // Only live, non-office sites can be assigned; the office needs no assignment.
+        $projectSites = Site::query()->activeOn()->where('type', '!=', 'office')->orderBy('name')->get(['id', 'name', 'type']);
+        $activeAssignment = $employee->activeAssignment()->with('site')->first();
+
+        return view('employees.edit', array_merge($this->formData(), compact('employee', 'projectSites', 'activeAssignment')));
     }
 
     public function update(Request $request, Employee $employee)

@@ -18,6 +18,8 @@
             </div>
         </form>
 
+        @include('employees._assignments')
+
         <form method="POST" action="{{ route('employees.status', $employee) }}"
               onsubmit="return confirm('{{ $employee->status === 'active' ? 'Deactivate' : 'Reactivate' }} this employee?')">
             @csrf

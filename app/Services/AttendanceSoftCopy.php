@@ -6,10 +6,12 @@ use App\Models\AttendanceLog;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Drivers\Gd\FontProcessor;
 use Intervention\Image\Encoders\PngEncoder;
 use Intervention\Image\Geometry\Factories\RectangleFactory;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageInterface;
+use Intervention\Image\Typography\Font;
 use Intervention\Image\Typography\FontFactory;
 
 /**
@@ -18,9 +20,6 @@ use Intervention\Image\Typography\FontFactory;
  */
 class AttendanceSoftCopy
 {
-    private const W = 700;
-    private const H = 704;
-
     /** Unique reference, e.g. ATT-123-IN / ATT-45-OUT. */
     public function reference(AttendanceLog $log): string
     {
@@ -76,239 +75,299 @@ class AttendanceSoftCopy
         return $log->logged_at->lessThan($expectedOut) ? 'Undertime' : 'On Time';
     }
 
-    /** Render the soft copy and return raw PNG bytes. */
+    /**
+     * Render the soft copy and return raw PNG bytes.
+     *
+     * TimeMark-style: the captured selfie fills the frame and the evidence is
+     * drawn over it — map thumbnail (with the geofence) top-left, the
+     * Time In/Out badge, time, date, site address and verification line
+     * bottom-left, the reference along the right edge and the company mark
+     * bottom-right.
+     */
     public function png(AttendanceLog $log): string
     {
         $isIn = $log->log_type === 'time_in';
         $employee = $log->employee;
-        $status = $this->status($log);
         $font = resource_path('fonts/Lato-Regular.ttf');
 
-        // Palette (aligned with the Brite-Tech logo: blue + orange)
-        $ink = '#16242b';
-        $muted = '#5a6b73';
-        $brandBlue = '#1e73be';
-        $brandOrange = '#ef7c1f';
-        $accent = $isIn ? '#2f8f63' : $brandOrange; // green in / orange out
-        $statusColor = match ($status) {
-            'On Time', 'Regular' => '#2f8f63',
-            'Early In' => '#1e73be', // informational — no pay impact
-            'Overtime' => '#b45309',
-            default => '#c0392b', // Late / Undertime
-        };
-
-        $margin = 36;
-        $rightX = self::W - $margin;
+        // Brite-Tech palette (matches the app: cyan brand + coral accent)
+        $accent = '#ea6c44';
+        $cyan = '#7ec8e3';
 
         $m = new ImageManager(new Driver());
-        $img = $m->createImage(self::W, self::H);
-        $img->fill('#ffffff');
 
-        // Company logo in a clean white header
-        $logoPath = public_path('images/brite-logo.png');
-        if (is_file($logoPath)) {
-            $logo = $m->decodePath($logoPath)->scale(width: 196);
-            $img->insert($logo, $margin, 22);
-        } else {
-            // Fallback wordmark if the logo asset is missing
-            $img->text('BRITE-TECH', $margin, 34, function (FontFactory $f) use ($font, $brandBlue) {
-                $f->filename($font);
-                $f->size(26);
-                $f->color($brandBlue);
-            });
-        }
-
-        // Document label (right-aligned, invoice style)
-        $img->text('PROOF OF ATTENDANCE', $rightX, 32, function (FontFactory $f) use ($font, $brandBlue) {
-            $f->filename($font);
-            $f->size(16);
-            $f->color($brandBlue);
-            $f->align('right');
-        });
-        $img->text('Ref ' . $this->reference($log), $rightX, 58, function (FontFactory $f) use ($font, $muted) {
-            $f->filename($font);
-            $f->size(13);
-            $f->color($muted);
-            $f->align('right');
-        });
-
-        // Accent divider under the header (orange lead-in + blue band)
-        $img->drawRectangle(function (RectangleFactory $r) use ($brandBlue) {
-            $r->at(0, 104);
-            $r->size(self::W, 4);
-            $r->background($brandBlue);
-        });
-        $img->drawRectangle(function (RectangleFactory $r) use ($brandOrange) {
-            $r->at(0, 104);
-            $r->size(200, 4);
-            $r->background($brandOrange);
-        });
-
-        // Captured selfie (proof photo), framed on the right
-        $photoSize = 200;
-        $photoX = self::W - $margin - $photoSize;
-        $photoY = 140;
+        // ── Base: the selfie itself ────────────────────────────────────
         $photoAbs = $log->photo_path ? Storage::disk('public')->path($log->photo_path) : null;
-        // Frame / border
-        $img->drawRectangle(function (RectangleFactory $r) use ($photoX, $photoY, $photoSize) {
-            $r->at($photoX - 3, $photoY - 3);
-            $r->size($photoSize + 6, $photoSize + 6);
-            $r->background('#e6ebee');
-            $r->border('#c9d4da', 1);
-        });
         if ($photoAbs && is_file($photoAbs)) {
-            $selfie = $m->decodePath($photoAbs)->cover($photoSize, $photoSize);
-            $img->insert($selfie, $photoX, $photoY);
+            $img = $m->decodePath($photoAbs)->scaleDown(1200, 1600);
+            // Tiny captures (old low-res uploads, test fixtures) are upscaled so
+            // the overlay has room to lay out.
+            if (min($img->width(), $img->height()) < 720) {
+                $img = $img->scale(width: $img->width() >= $img->height() ? 1440 : 1080);
+            }
         } else {
-            // Placeholder when no selfie was captured
-            $img->text('No photo', $photoX + $photoSize / 2, $photoY + $photoSize / 2 - 8, function (FontFactory $f) use ($font, $muted) {
+            $img = $m->createImage(1080, 1440)->fill('#1c1c1e');
+            $img->text('No photo captured', 540, 720, function (FontFactory $f) use ($font) {
                 $f->filename($font);
-                $f->size(15);
-                $f->color($muted);
-                $f->align('center');
+                $f->size(40);
+                $f->color('#94a3b8');
+                $f->align('center', 'center');
             });
         }
-        $img->text('Captured selfie', $photoX + $photoSize / 2, $photoY + $photoSize + 12, function (FontFactory $f) use ($font, $muted) {
-            $f->filename($font);
-            $f->size(12);
-            $f->color($muted);
-            $f->align('center');
-        });
+        $W = $img->width();
+        $H = $img->height();
+        // Everything below is designed on a 1080-wide portrait frame and
+        // scaled by $u so a landscape webcam shot lays out the same way.
+        $u = min($W, $H) / 1080;
+        $px = fn (float $v): int => (int) round($v * $u);
+        $measure = fn (string $text, float $size) => (new FontProcessor())->boxSize($text, new Font($font, $size * $u));
 
-        // Type pill (TIME IN / TIME OUT) + big time value
-        $pillY = 140;
-        $pillW = 118;
-        $img->drawRectangle(function (RectangleFactory $r) use ($accent, $margin, $pillY, $pillW) {
-            $r->at($margin, $pillY);
-            $r->size($pillW, 34);
-            $r->background($accent);
-        });
-        $img->text(strtoupper($isIn ? 'Time In' : 'Time Out'), $margin + $pillW / 2, $pillY + 18, function (FontFactory $f) use ($font) {
-            $f->filename($font);
-            $f->size(14);
-            $f->color('#ffffff');
-            $f->align('center');
-        });
-        $img->text($log->logged_at->format('g:i A'), $margin, $pillY + 82, function (FontFactory $f) use ($font, $ink) {
-            $f->filename($font);
-            $f->size(36);
-            $f->color($ink);
-        });
-
-        // Detail rows (label + value), left column beside the photo
-        $rows = [
-            ['Employee', $employee?->full_name ?? '—'],
-            ['Employee ID', $employee?->employee_no ?? '—'],
-            ['Date', $log->logged_at->format('l, F j, Y')],
-            ['Status', $status],
-        ];
-        $y = 252;
-        $labelX = $margin;
-        $valueX = $margin + 118;
-        foreach ($rows as [$label, $value]) {
-            $isStatus = $label === 'Status';
-            $img->text($label, $labelX, $y, function (FontFactory $f) use ($font, $muted) {
-                $f->filename($font);
-                $f->size(13);
-                $f->color($muted);
+        // ── Scrims so the overlays read on any background ─────────────
+        $topScrim = (int) ($H * 0.22);
+        for ($i = 0; $i < 24; $i++) {
+            $y0 = (int) ($topScrim * $i / 24);
+            $y1 = (int) ($topScrim * ($i + 1) / 24);
+            $alpha = 0.45 * (1 - $i / 24) ** 1.4;
+            $img->drawRectangle(function (RectangleFactory $r) use ($y0, $y1, $W, $alpha) {
+                $r->at(0, $y0);
+                $r->size($W, max(1, $y1 - $y0));
+                $r->background("rgba(0,0,0,{$alpha})");
             });
-            $img->text((string) $value, $valueX, $y - 2, function (FontFactory $f) use ($font, $ink, $statusColor, $isStatus) {
-                $f->filename($font);
-                $f->size($isStatus ? 19 : 17);
-                $f->color($isStatus ? $statusColor : $ink);
+        }
+        $scrimTop = (int) ($H * 0.5);
+        $steps = 48;
+        for ($i = 0; $i < $steps; $i++) {
+            $y0 = $scrimTop + (int) (($H - $scrimTop) * $i / $steps);
+            $y1 = $scrimTop + (int) (($H - $scrimTop) * ($i + 1) / $steps);
+            $alpha = 0.78 * ($i / $steps) ** 1.6;
+            $img->drawRectangle(function (RectangleFactory $r) use ($y0, $y1, $W, $alpha) {
+                $r->at(0, $y0);
+                $r->size($W, max(1, $y1 - $y0));
+                $r->background("rgba(0,0,0,{$alpha})");
             });
-            $y += 44;
         }
 
-        // Location map with a pin at the punch coordinates
+        // ── Map thumbnail with the geofence, top-left ──────────────────
         $lat = $log->latitude !== null ? (float) $log->latitude : null;
         $lng = $log->longitude !== null ? (float) $log->longitude : null;
-        $mapX = $margin;
-        $mapY = 450;
-        $mapW = self::W - 2 * $margin;
-        $mapH = 140;
-
-        // Section divider above the location block
-        $img->drawRectangle(function (RectangleFactory $r) use ($margin) {
-            $r->at($margin, 414);
-            $r->size(self::W - 2 * $margin, 1);
-            $r->background('#e6ebee');
+        $site = $log->site ?? null;
+        $mapSize = $px(300);
+        $mapX = $px(36);
+        $mapY = $px(36);
+        $img->drawRectangle(function (RectangleFactory $r) use ($mapX, $mapY, $mapSize, $px) {
+            $r->at($mapX - $px(6), $mapY - $px(6));
+            $r->size($mapSize + $px(12), $mapSize + $px(12));
+            $r->background('#ffffff');
         });
-        $img->text('LOCATION', $margin, 430, function (FontFactory $f) use ($font, $brandBlue) {
-            $f->filename($font);
-            $f->size(13);
-            $f->color($brandBlue);
-        });
-        // Map frame
-        $img->drawRectangle(function (RectangleFactory $r) use ($mapX, $mapY, $mapW, $mapH) {
-            $r->at($mapX - 2, $mapY - 2);
-            $r->size($mapW + 4, $mapH + 4);
-            $r->background('#e6ebee');
-            $r->border('#c9d4da', 1);
-        });
-
-        $map = ($lat !== null && $lng !== null) ? $this->mapImage($m, $lat, $lng, $mapW, $mapH) : null;
+        $fence = $site ? [(float) $site->latitude, (float) $site->longitude, (int) $site->geofence_radius_m] : null;
+        $map = ($lat !== null && $lng !== null) ? $this->mapImage($m, $lat, $lng, $mapSize, $mapSize, 16, $fence) : null;
         if ($map) {
             $img->insert($map, $mapX, $mapY);
         } else {
-            $img->drawRectangle(function (RectangleFactory $r) use ($mapX, $mapY, $mapW, $mapH) {
+            $img->drawRectangle(function (RectangleFactory $r) use ($mapX, $mapY, $mapSize) {
                 $r->at($mapX, $mapY);
-                $r->size($mapW, $mapH);
-                $r->background('#eef2f4');
+                $r->size($mapSize, $mapSize);
+                $r->background('#e5e7eb');
             });
-            $img->text($lat !== null ? 'Map unavailable' : 'Location not recorded', $mapX + $mapW / 2, $mapY + $mapH / 2 - 8, function (FontFactory $f) use ($font, $muted) {
+            $img->text($lat !== null ? 'Map unavailable' : 'No location', (int) ($mapX + $mapSize / 2), (int) ($mapY + $mapSize / 2), function (FontFactory $f) use ($font, $px) {
                 $f->filename($font);
-                $f->size(14);
-                $f->color($muted);
-                $f->align('center');
+                $f->size($px(22));
+                $f->color('#6b7280');
+                $f->align('center', 'center');
             });
         }
 
-        // Caption under the map: coordinates, distance and geofence status
+        // Coordinates caption inside the map thumbnail
         if ($lat !== null && $lng !== null) {
-            $coords = number_format($lat, 6) . ', ' . number_format($lng, 6);
-            $site = $log->site?->name;
-            $dist = $log->distance_m !== null
-                ? '  ·  ' . number_format(((float) $log->distance_m) / 1000, 2) . ' km' . ($site ? ' from ' . $site : '')
-                : '';
-            $img->text($coords . $dist, $margin, 616, function (FontFactory $f) use ($font, $ink) {
-                $f->filename($font);
-                $f->size(13);
-                $f->color($ink);
+            $capH = $px(34);
+            $img->drawRectangle(function (RectangleFactory $r) use ($mapX, $mapY, $mapSize, $capH) {
+                $r->at($mapX, $mapY + $mapSize - $capH);
+                $r->size($mapSize, $capH);
+                $r->background('rgba(0,0,0,0.62)');
             });
-            $inside = (bool) $log->within_geofence;
-            $img->text($inside ? 'Inside geofence' : 'Outside geofence', $rightX, 616, function (FontFactory $f) use ($font, $inside) {
+            $caption = number_format($lat, 5) . ', ' . number_format($lng, 5)
+                . ($log->gps_accuracy_m !== null ? '  ±' . number_format((float) $log->gps_accuracy_m) . 'm' : '');
+            $img->text($caption, (int) ($mapX + $mapSize / 2), (int) ($mapY + $mapSize - $capH / 2), function (FontFactory $f) use ($font, $px) {
                 $f->filename($font);
-                $f->size(13);
-                $f->color($inside ? '#2f8f63' : '#c0392b');
-                $f->align('right');
+                $f->size($px(18));
+                $f->color('#ffffff');
+                $f->align('center', 'center');
             });
         }
 
-        // Footer band
-        $img->drawRectangle(function (RectangleFactory $r) {
-            $r->at(0, self::H - 52);
-            $r->size(self::W, 52);
-            $r->background('#eef3f6');
+        // ── Bottom-left block, laid out upwards from the bottom margin ──
+        $left = $px(48);
+        $textW = $W - $left - $px(120); // keep clear of the vertical reference on the right
+        $shadow = fn (FontFactory $f) => $f->stroke('#000000', max(1, $px(2)));
+
+        // Verification line
+        $verdict = $log->location_status
+            ? GeofenceService::label($log->location_status)
+            : ((bool) $log->within_geofence ? 'Inside geofence' : 'Outside geofence');
+        $ok = in_array($log->location_status, [GeofenceService::VERIFIED_LOCATION, GeofenceService::AUTHORIZED_ALTERNATE_LOCATION], true)
+            || ($log->location_status === null && $log->within_geofence);
+        if ($log->location_verification_status === 'approved') {
+            $verdict .= ' · approved by HR';
+            $ok = true;
+        } elseif ($log->location_verification_status === 'rejected') {
+            $verdict .= ' · rejected by HR';
+            $ok = false;
+        } elseif ($log->location_verification_status === 'pending') {
+            $verdict .= ' · pending HR review';
+        }
+        $verifyLine = $verdict . ($site ? ' · ' . $site->name : '')
+            . ($log->distance_m !== null && ! $log->within_geofence ? ' · ' . number_format((float) $log->distance_m) . ' m from nearest site' : '');
+        $y = $H - $px(56);
+        $img->drawCircle(function ($c) use ($left, $y, $px, $ok) {
+            $c->at($left + $px(9), $y - $px(11));
+            $c->radius($px(9));
+            $c->background($ok ? '#6ee7b7' : '#fda4af');
         });
-        $img->drawRectangle(function (RectangleFactory $r) {
-            $r->at(0, self::H - 52);
-            $r->size(self::W, 1);
-            $r->background('#dbe3e7');
-        });
-        $img->text('Brite-Tech Solutions · Attendance System', $margin, self::H - 34, function (FontFactory $f) use ($font, $ink) {
+        $img->text($verifyLine, $left + $px(28), $y, function (FontFactory $f) use ($font, $px, $ok, $shadow) {
             $f->filename($font);
-            $f->size(13);
-            $f->color($ink);
+            $f->size($px(26));
+            $f->color($ok ? '#6ee7b7' : '#fda4af');
+            $f->align('left', 'bottom');
+            $shadow($f);
         });
-        $img->text('Generated ' . now()->format('M j, Y g:i A'), $rightX, self::H - 33, function (FontFactory $f) use ($font, $muted) {
+
+        // Address (wrapped) and date, with a coral rule on the left
+        $address = $site ? trim($site->name . ($site->address ? ' · ' . $site->address : '')) : 'No registered work site matched';
+        $addrLines = $this->wrapLines($address, $px(30), $textW - $px(24), $font);
+        $lineH = $px(38);
+        $y -= $px(34) + $lineH * count($addrLines);
+        $blockBottom = $y + $lineH * count($addrLines);
+        foreach ($addrLines as $i => $line) {
+            $img->text($line, $left + $px(20), $y + $lineH * ($i + 1) - $px(6), function (FontFactory $f) use ($font, $px, $shadow) {
+                $f->filename($font);
+                $f->size($px(30));
+                $f->color('#ffffff');
+                $f->align('left', 'bottom');
+                $shadow($f);
+            });
+        }
+        $y -= $px(46);
+        $img->text($log->logged_at->format('D, M j, Y'), $left + $px(20), $y + $px(34), function (FontFactory $f) use ($font, $px, $shadow) {
             $f->filename($font);
-            $f->size(12);
-            $f->color($muted);
-            $f->align('right');
+            $f->size($px(34));
+            $f->color('#ffffff');
+            $f->align('left', 'bottom');
+            $shadow($f);
         });
+        $ruleTop = $y - $px(4);
+        $img->drawRectangle(function (RectangleFactory $r) use ($left, $ruleTop, $blockBottom, $px, $accent) {
+            $r->at($left, $ruleTop);
+            $r->size($px(8), $blockBottom - $ruleTop);
+            $r->background($accent);
+        });
+
+        // Badge: [ Time In ][ 2:24 PM ][ On Time ]
+        $badgeH = $px(76);
+        $y = $ruleTop - $px(28) - $badgeH;
+        $label = $isIn ? 'Time In' : 'Time Out';
+        $labelW = $measure($label, 40)->width() + $px(44);
+        $img->drawRectangle(function (RectangleFactory $r) use ($left, $y, $labelW, $badgeH, $accent) {
+            $r->at($left, $y);
+            $r->size($labelW, $badgeH);
+            $r->background($accent);
+        });
+        $img->text($label, (int) ($left + $labelW / 2), (int) ($y + $badgeH / 2), function (FontFactory $f) use ($font, $px) {
+            $f->filename($font);
+            $f->size($px(40));
+            $f->color('#ffffff');
+            $f->align('center', 'center');
+        });
+        $time = $log->logged_at->format('g:i');
+        $ampm = $log->logged_at->format('A');
+        $timeW = $measure($time, 56)->width() + $measure($ampm, 22)->width() + $px(56);
+        $img->drawRectangle(function (RectangleFactory $r) use ($left, $labelW, $y, $timeW, $badgeH) {
+            $r->at($left + $labelW, $y);
+            $r->size($timeW, $badgeH);
+            $r->background('#ffffff');
+        });
+        $img->text($time, $left + $labelW + $px(20), (int) ($y + $badgeH / 2 + $px(2)), function (FontFactory $f) use ($font, $px) {
+            $f->filename($font);
+            $f->size($px(56));
+            $f->color('#111827');
+            $f->align('left', 'center');
+        });
+        $img->text($ampm, $left + $labelW + $timeW - $px(20), (int) ($y + $badgeH / 2 - $px(10)), function (FontFactory $f) use ($font, $px) {
+            $f->filename($font);
+            $f->size($px(22));
+            $f->color('#35748a');
+            $f->align('right', 'center');
+        });
+        // Employee name
+        $y -= $px(24);
+        $img->text($employee?->full_name ?? '—', $left, $y, function (FontFactory $f) use ($font, $px, $shadow) {
+            $f->filename($font);
+            $f->size($px(64));
+            $f->color('#ffffff');
+            $f->align('left', 'bottom');
+            $shadow($f);
+        });
+        if ($employee?->employee_no) {
+            $nameW = $measure($employee->full_name, 64)->width();
+            $img->text($employee->employee_no, $left + $nameW + $px(18), $y - $px(8), function (FontFactory $f) use ($font, $px, $cyan, $shadow) {
+                $f->filename($font);
+                $f->size($px(24));
+                $f->color($cyan);
+                $f->align('left', 'bottom');
+                $shadow($f);
+            });
+        }
+
+        // ── Reference along the right edge ─────────────────────────────
+        $ref = $this->reference($log) . '  ·  Brite-Tech Verified  ·  generated ' . now()->format('M j, Y g:i A');
+        $img->text($ref, $W - $px(52), $H - $px(56), function (FontFactory $f) use ($font, $px, $shadow) {
+            $f->filename($font);
+            $f->size($px(22));
+            $f->color('#e5e7eb');
+            $f->angle(-90);
+            $f->align('left', 'top');
+            $shadow($f);
+        });
+
+        // ── Company mark, top-right (the PNG is transparent) ───────────
+        $logoPath = public_path('images/brite-logo.png');
+        if (is_file($logoPath)) {
+            $logo = $m->decodePath($logoPath)->scale(width: $px(240));
+            $logoX = $W - $px(36) - $logo->width();
+            $logoY = $px(36);
+            $img->insert($logo, $logoX, $logoY);
+            $img->text('Proof of attendance', $W - $px(36), $logoY + $logo->height() + $px(30), function (FontFactory $f) use ($font, $px, $shadow) {
+                $f->filename($font);
+                $f->size($px(20));
+                $f->color('#f3f4f6');
+                $f->align('right', 'bottom');
+                $shadow($f);
+            });
+        }
 
         return (string) $img->encode(new PngEncoder());
+    }
+
+    /** Greedy word-wrap using real glyph widths. */
+    private function wrapLines(string $text, float $size, int $maxWidth, string $font): array
+    {
+        $proc = new FontProcessor();
+        $fontObj = new Font($font, $size);
+        $lines = [];
+        $current = '';
+        foreach (preg_split('/\s+/', trim($text)) ?: [] as $word) {
+            $try = $current === '' ? $word : "{$current} {$word}";
+            if ($current !== '' && $proc->boxSize($try, $fontObj)->width() > $maxWidth) {
+                $lines[] = $current;
+                $current = $word;
+            } else {
+                $current = $try;
+            }
+        }
+        if ($current !== '') {
+            $lines[] = $current;
+        }
+
+        return $lines ?: [''];
     }
 
     /**
@@ -317,10 +376,10 @@ class AttendanceSoftCopy
      * fetched (e.g. offline) so the caller can fall back gracefully. Results are
      * cached on the public disk to avoid re-fetching tiles on every download.
      */
-    private function mapImage(ImageManager $m, float $lat, float $lng, int $w, int $h, int $zoom = 16): ?ImageInterface
+    private function mapImage(ImageManager $m, float $lat, float $lng, int $w, int $h, int $zoom = 16, ?array $fence = null): ?ImageInterface
     {
         $disk = Storage::disk('public');
-        $cacheKey = 'attendance-maps/' . md5("{$lat},{$lng},{$zoom},{$w}x{$h}") . '.png';
+        $cacheKey = 'attendance-maps/' . md5("{$lat},{$lng},{$zoom},{$w}x{$h}," . json_encode($fence)) . '.png';
         if ($disk->exists($cacheKey)) {
             try {
                 return $m->decodeBinary($disk->get($cacheKey));
@@ -369,7 +428,29 @@ class AttendanceSoftCopy
                 }
             }
 
-            // Red drop-pin at the window centre
+            // Geofence circle of the matched site (translucent brand cyan)
+            if ($fence) {
+                [$fLat, $fLng, $radiusM] = $fence;
+                $fx = ($fLng + 180) / 360 * $n * 256 - $ox;
+                $fLatRad = deg2rad($fLat);
+                $fy = (1 - log(tan($fLatRad) + 1 / cos($fLatRad)) / M_PI) / 2 * $n * 256 - $oy;
+                $metersPerPx = 156543.03392 * cos($fLatRad) / $n;
+                $rPx = max(4, (int) round($radiusM / $metersPerPx));
+                $map->drawCircle(function ($c) use ($fx, $fy, $rPx) {
+                    $c->at((int) round($fx), (int) round($fy));
+                    $c->radius($rPx);
+                    $c->background('rgba(74, 155, 181, 0.22)');
+                    $c->border('#4a9bb5', 2);
+                });
+                $map->drawCircle(function ($c) use ($fx, $fy) {
+                    $c->at((int) round($fx), (int) round($fy));
+                    $c->radius(5);
+                    $c->background('#2563eb');
+                    $c->border('#ffffff', 2);
+                });
+            }
+
+            // Coral drop-pin at the window centre (the punch)
             $px = intdiv($w, 2);
             $py = intdiv($h, 2);
             $map->drawEllipse(function ($e) use ($px, $py) {
@@ -381,12 +462,12 @@ class AttendanceSoftCopy
                 $p->point($px - 8, $py - 17);
                 $p->point($px + 8, $py - 17);
                 $p->point($px, $py);
-                $p->background('#c0392b');
+                $p->background('#ea6c44');
             });
             $map->drawCircle(function ($c) use ($px, $py) {
                 $c->at($px, $py - 24);
                 $c->radius(11);
-                $c->background('#c0392b');
+                $c->background('#ea6c44');
                 $c->border('#ffffff', 2);
             });
             $map->drawCircle(function ($c) use ($px, $py) {

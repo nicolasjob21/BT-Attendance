@@ -16,7 +16,8 @@
             </div>
         @endif
 
-        <div class="flex justify-end">
+        <div class="flex flex-wrap items-center justify-end gap-3">
+            <a href="{{ route('attendance.timesheet', auth()->user()->employee) }}" class="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">Monthly timesheet</a>
             <a href="{{ route('attendance.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">Clock In / Out</a>
         </div>
 
@@ -57,16 +58,31 @@
                                     @endif
                                 </td>
                                 <td data-label="Location" class="px-4 py-3">
-                                    @if($log->latitude && $log->longitude)
-                                        <a href="https://www.google.com/maps?q={{ $log->latitude }},{{ $log->longitude }}" target="_blank" rel="noopener"
-                                           class="inline-flex items-center gap-1 text-brand-600 hover:underline dark:text-brand-300">
-                                            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
-                                            View on map
-                                        </a>
-                                        <div class="text-xs text-gray-400 dark:text-slate-500">{{ number_format($log->latitude, 5) }}, {{ number_format($log->longitude, 5) }}</div>
-                                    @else
-                                        <span class="text-gray-400 dark:text-slate-500">—</span>
-                                    @endif
+                                    <div class="flex flex-col items-end gap-1 sm:items-start">
+                                        @if($log->site)
+                                            <span class="font-medium text-gray-900 dark:text-slate-100">{{ $log->site->name }}</span>
+                                        @elseif($log->location_status)
+                                            <span class="text-gray-500 dark:text-slate-400">No site matched</span>
+                                        @endif
+                                        @if($log->location_status)
+                                            <x-location-badge :status="$log->location_status" :verification="$log->location_verification_status" compact />
+                                        @endif
+                                        @if($log->latitude && $log->longitude)
+                                            <a href="https://www.google.com/maps?q={{ $log->latitude }},{{ $log->longitude }}" target="_blank" rel="noopener"
+                                               class="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-300">
+                                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+                                                View on map
+                                                @if($log->distance_m !== null && ! $log->within_geofence)
+                                                    <span class="text-gray-400 dark:text-slate-500">({{ number_format($log->distance_m) }} m away)</span>
+                                                @endif
+                                            </a>
+                                        @elseif(! $log->location_status)
+                                            <span class="text-gray-400 dark:text-slate-500">—</span>
+                                        @endif
+                                        @if($log->location_remarks)
+                                            <p class="max-w-xs text-right text-xs text-gray-500 dark:text-slate-400 sm:text-left">HR: “{{ $log->location_remarks }}”@if($log->locationVerifier) — {{ $log->locationVerifier->name }}@endif</p>
+                                        @endif
+                                    </div>
                                 </td>
                                 <td data-label="Soft copy" class="px-4 py-3">
                                     <a href="{{ route('attendance.softcopy', ['id' => $log->id, 'type' => $log->log_type === 'time_in' ? 'in' : 'out']) }}"

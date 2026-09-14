@@ -9,6 +9,7 @@ $icons = [
     'plus-clock' => '<circle cx="12" cy="12" r="8"/><path stroke-linecap="round" d="M12 9v6M9 12h6"/>',
     'users'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4h-1m-4 5H2v-1a4 4 0 014-4h4a4 4 0 014 4v1zm-3-11a3 3 0 11-6 0 3 3 0 016 0zm7 1a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/>',
     'cash'       => '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+    'map-pin'    => '<path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>',
 ];
 $base = 'relative flex items-center gap-3 rounded-none border-l-2 px-3 py-2 text-sm font-medium transition-colors';
 $state = $active

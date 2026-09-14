@@ -74,7 +74,7 @@
                 </div>
             </div>
 
-            @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports'))
+            @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports') || $user?->can('manage settings'))
             <div>
                 <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
                 <div class="space-y-1">
@@ -86,6 +86,9 @@
                     @endcan
                     @can('run payroll')
                         <x-nav-item :active="request()->routeIs('payroll.index')" :href="route('payroll.index')" icon="cash">Payroll</x-nav-item>
+                    @endcan
+                    @can('manage settings')
+                        <x-nav-item :active="request()->routeIs('sites.*')" :href="route('sites.index')" icon="map-pin">Locations</x-nav-item>
                     @endcan
                 </div>
             </div>

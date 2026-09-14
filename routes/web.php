@@ -8,6 +8,8 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProjectAssignmentController;
+use App\Http\Controllers\SiteController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -27,6 +29,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/attendance/logs', [AttendanceController::class, 'index'])->name('attendance.index');
     Route::get('/attendance/{id}/softcopy/{type}', [AttendanceController::class, 'softCopy'])
         ->whereIn('type', ['in', 'out'])->name('attendance.softcopy');
+    // Monthly timesheet for one employee (own, or anyone's with `view team reports`).
+    Route::get('/attendance/timesheet/{employee}', [AttendanceController::class, 'timesheet'])->name('attendance.timesheet');
 
     // --- Attendance monitor: everyone's time in/out by date (Dept. Head, HR, Admin) ---
     Route::get('/attendance/monitor', [AttendanceController::class, 'monitor'])
@@ -40,7 +44,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/overtime', [OvertimeController::class, 'index'])->name('overtime.index');
     Route::get('/overtime/create', [OvertimeController::class, 'create'])->name('overtime.create');
-    Route::get('/overtime/preview', [OvertimeController::class, 'preview'])->name('overtime.preview');
     Route::post('/overtime', [OvertimeController::class, 'store'])->name('overtime.store');
 
     Route::get('/payroll/item/{item}', [PayrollController::class, 'show'])->name('payroll.show');
@@ -54,6 +57,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // Verify an unusually long day (13h+) flagged on the attendance monitor.
         Route::post('/attendance/{log}/verify', [AttendanceController::class, 'verify'])->name('attendance.verify');
+        // Approve/reject a punch made outside every authorized geofence (or with no/weak GPS).
+        Route::post('/attendance/{log}/verify-location', [AttendanceController::class, 'verifyLocation'])->name('attendance.verify-location');
     });
 
     // --- Employee management (HR, Admin) ---
@@ -67,6 +72,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
         Route::patch('/employees/{employee}/status', [EmployeeController::class, 'toggleStatus'])->name('employees.status');
+
+        // Project site deployment (which site an employee is assigned to).
+        Route::post('/employees/{employee}/assignments', [ProjectAssignmentController::class, 'store'])->name('employees.assignments.store');
+        Route::patch('/employees/{employee}/assignments/{assignment}/end', [ProjectAssignmentController::class, 'end'])->name('employees.assignments.end');
+    });
+
+    // --- Settings: attendance locations / geofences (HR, Admin) ---
+    Route::middleware('permission:manage settings')->group(function () {
+        Route::get('/settings/sites', [SiteController::class, 'index'])->name('sites.index');
+        Route::get('/settings/sites/create', [SiteController::class, 'create'])->name('sites.create');
+        Route::post('/settings/sites', [SiteController::class, 'store'])->name('sites.store');
+        Route::get('/settings/sites/{site}/edit', [SiteController::class, 'edit'])->name('sites.edit');
+        Route::put('/settings/sites/{site}', [SiteController::class, 'update'])->name('sites.update');
+        Route::patch('/settings/sites/{site}/status', [SiteController::class, 'setStatus'])->name('sites.status');
     });
 
     // --- Payroll (HR, Admin) ---

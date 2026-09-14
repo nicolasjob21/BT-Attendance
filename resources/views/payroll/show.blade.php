@@ -44,7 +44,7 @@
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Earnings</p>
                     <dl class="space-y-1.5 text-sm tabular-nums">
                         <div class="flex justify-between"><dt class="text-gray-600 dark:text-slate-300">Basic pay</dt><dd class="text-gray-900 dark:text-slate-100">{{ number_format($item->basic_pay, 2) }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-gray-600 dark:text-slate-300">Overtime</dt><dd class="text-gray-900 dark:text-slate-100">{{ number_format($item->overtime_pay, 2) }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-gray-600 dark:text-slate-300">Overtime <span class="text-xs text-gray-400 dark:text-slate-500">({{ $item->payrollPeriod->overtimeWindowLabel() }})</span></dt><dd class="text-gray-900 dark:text-slate-100">{{ number_format($item->overtime_pay, 2) }}</dd></div>
                         <div class="flex justify-between"><dt class="text-gray-600 dark:text-slate-300">Holiday</dt><dd class="text-gray-900 dark:text-slate-100">{{ number_format($item->holiday_pay, 2) }}</dd></div>
                         <div class="flex justify-between"><dt class="text-gray-600 dark:text-slate-300">Night diff.</dt><dd class="text-gray-900 dark:text-slate-100">{{ number_format($item->night_diff_pay, 2) }}</dd></div>
                         <div class="flex justify-between border-t border-gray-100 dark:border-slate-700 pt-1.5 font-semibold"><dt>Gross pay</dt><dd>₱{{ number_format($item->gross_pay, 2) }}</dd></div>

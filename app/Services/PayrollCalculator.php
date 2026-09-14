@@ -69,14 +69,22 @@ class PayrollCalculator
             ->sum('days'); // 0.5 per approved half day
         $halfDayDeduction = round($approvedHalfDays * $daily, 2);
 
-        // ---- overtime: approved hours × hourly rate × premium multiplier ----
+        // ---- overtime: pre-approved requests × hourly rate × premium multiplier ----
+        // Paid ONE CUTOFF IN ARREARS: this payroll pays the OT worked in the
+        // previous cutoff (1–15 → paid on the 16–end run; 16–end → paid on the
+        // next month's 1–15 run), so the hours are final by the time payroll
+        // is generated. Only hours actually worked (derived from attendance)
+        // are paid, capped at what was approved in advance; requests without
+        // derived hours yet (no clock-out) contribute nothing.
         $overtimePay = 0;
+        [$otFrom, $otTo] = $period->overtimeWindow();
         $approvedOt = $employee->overtimeRequests()
             ->where('status', 'approved')
-            ->whereBetween('ot_date', [$period->period_start, $period->period_end])
+            ->whereNotNull('hours')
+            ->whereBetween('ot_date', [$otFrom->toDateString(), $otTo->toDateString()])
             ->get();
         foreach ($approvedOt as $ot) {
-            $overtimePay += (float) $ot->hours * $hourly * $ot->multiplier();
+            $overtimePay += ($ot->payableHours() ?? 0) * $hourly * $ot->multiplier();
         }
         $overtimePay = round($overtimePay, 2);
 
