@@ -1,7 +1,11 @@
 <?php
 
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\CheckpointCampaignController;
+use App\Http\Controllers\CheckpointResultController;
+use App\Http\Controllers\CheckpointSettingsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\EmployeeCheckpointController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\NotificationController;
@@ -93,6 +97,56 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
         Route::post('/payroll/{period}/generate', [PayrollController::class, 'generate'])->name('payroll.generate');
         Route::get('/employees/{employee}/salary-history', [PayrollController::class, 'salaryHistory'])->name('employees.salary-history');
+    });
+
+    // --- Check Point: employee side (respond to an open checkpoint) ---
+    Route::get('/my-checkpoints', [EmployeeCheckpointController::class, 'index'])->name('my-checkpoints.index');
+    Route::get('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'show'])->name('my-checkpoints.show');
+    Route::post('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'submit'])->name('my-checkpoints.submit');
+    Route::post('/my-checkpoints/{checkpoint}/explain', [EmployeeCheckpointController::class, 'explain'])->name('my-checkpoints.explain');
+    // Private checkpoint photo: owner or anyone with `view checkpoint results` (checked in the controller).
+    Route::get('/checkpoint-photos/{checkpoint}', [CheckpointResultController::class, 'photo'])->name('checkpoints.photo');
+
+    // --- Check Point: management (HR, Admin) — every action is permission-gated server-side ---
+    Route::prefix('checkpoints')->name('checkpoints.')->middleware('permission:view checkpoint module')->group(function () {
+        Route::get('/', [CheckpointCampaignController::class, 'index'])->name('index');
+        Route::get('/history', [CheckpointCampaignController::class, 'history'])->name('history');
+
+        Route::middleware('permission:create checkpoint campaign')->group(function () {
+            Route::get('/create', [CheckpointCampaignController::class, 'create'])->name('create');
+            Route::post('/', [CheckpointCampaignController::class, 'store'])->name('store');
+            Route::get('/campaigns/{campaign}/edit', [CheckpointCampaignController::class, 'edit'])->name('edit');
+            Route::put('/campaigns/{campaign}', [CheckpointCampaignController::class, 'update'])->name('update');
+        });
+
+        Route::get('/campaigns/{campaign}', [CheckpointCampaignController::class, 'show'])->name('show');
+        Route::post('/campaigns/{campaign}/activate', [CheckpointCampaignController::class, 'activate'])
+            ->middleware('permission:activate checkpoint campaign')->name('activate');
+        Route::middleware('permission:pause checkpoint campaign')->group(function () {
+            Route::post('/campaigns/{campaign}/pause', [CheckpointCampaignController::class, 'pause'])->name('pause');
+            Route::post('/campaigns/{campaign}/resume', [CheckpointCampaignController::class, 'resume'])->name('resume');
+        });
+        Route::middleware('permission:end checkpoint campaign')->group(function () {
+            Route::post('/campaigns/{campaign}/end', [CheckpointCampaignController::class, 'end'])->name('end');
+            Route::post('/campaigns/{campaign}/cancel', [CheckpointCampaignController::class, 'cancel'])->name('cancel');
+            Route::post('/campaigns/{campaign}/close', [CheckpointCampaignController::class, 'close'])->name('close');
+        });
+        Route::get('/campaigns/{campaign}/export', [CheckpointCampaignController::class, 'export'])
+            ->middleware('permission:export checkpoint reports')->name('export');
+
+        Route::middleware('permission:view checkpoint results')->group(function () {
+            Route::get('/results', [CheckpointResultController::class, 'index'])->name('results.index');
+            Route::get('/results/{checkpoint}', [CheckpointResultController::class, 'show'])->name('results.show');
+        });
+        Route::middleware('permission:review checkpoint exceptions')->group(function () {
+            Route::post('/results/{checkpoint}/review', [CheckpointResultController::class, 'review'])->name('results.review');
+            Route::post('/results/{checkpoint}/remarks', [CheckpointResultController::class, 'remarks'])->name('results.remarks');
+        });
+
+        Route::middleware('permission:manage checkpoint settings')->group(function () {
+            Route::get('/settings', [CheckpointSettingsController::class, 'edit'])->name('settings');
+            Route::put('/settings', [CheckpointSettingsController::class, 'update'])->name('settings.update');
+        });
     });
 
     // --- Profile (Breeze) ---

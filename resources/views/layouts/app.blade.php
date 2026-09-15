@@ -71,10 +71,14 @@
                     <x-nav-item :active="request()->routeIs('attendance.index')" :href="route('attendance.index')" icon="list">My Attendance</x-nav-item>
                     <x-nav-item :active="request()->routeIs('leave.*')" :href="route('leave.index')" icon="calendar">Leave</x-nav-item>
                     <x-nav-item :active="request()->routeIs('overtime.*')" :href="route('overtime.index')" icon="plus-clock">Overtime</x-nav-item>
+                    @if($user?->employee)
+                        @php $openCheckpoints = \App\Models\Checkpoint::where('employee_id', $user->employee->id)->where('verification_status', 'open')->count(); @endphp
+                        <x-nav-item :active="request()->routeIs('my-checkpoints.*')" :href="route('my-checkpoints.index')" icon="shield-check" :badge="$openCheckpoints ?: null">My Checkpoints</x-nav-item>
+                    @endif
                 </div>
             </div>
 
-            @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports') || $user?->can('manage settings'))
+            @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports') || $user?->can('manage settings') || $user?->can('view checkpoint module'))
             <div>
                 <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
                 <div class="space-y-1">
@@ -86,6 +90,9 @@
                     @endcan
                     @can('run payroll')
                         <x-nav-item :active="request()->routeIs('payroll.index')" :href="route('payroll.index')" icon="cash">Payroll</x-nav-item>
+                    @endcan
+                    @can('view checkpoint module')
+                        <x-nav-item :active="request()->routeIs('checkpoints.*')" :href="route('checkpoints.index')" icon="shield-check">Check Point</x-nav-item>
                     @endcan
                     @can('manage settings')
                         <x-nav-item :active="request()->routeIs('sites.*')" :href="route('sites.index')" icon="map-pin">Locations</x-nav-item>

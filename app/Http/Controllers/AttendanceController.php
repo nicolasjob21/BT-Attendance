@@ -10,6 +10,7 @@ use App\Notifications\LocationExceptionFlagged;
 use App\Notifications\RequestReviewed;
 use App\Services\AttendanceSoftCopy;
 use App\Services\GeofenceService;
+use App\Support\DataUrlPhoto;
 use App\Support\WorkHours;
 use App\Support\WorkSessions;
 use Illuminate\Http\Request;
@@ -79,8 +80,8 @@ class AttendanceController extends Controller
 
         if ($geofence->blocks($result)) {
             return back()->withErrors([
-                'latitude' => $result->message . ' You must be inside an authorized work site to '
-                    . ($data['log_type'] === 'time_in' ? 'clock in.' : 'clock out.'),
+                'latitude' => $result->message.' You must be inside an authorized work site to '
+                    .($data['log_type'] === 'time_in' ? 'clock in.' : 'clock out.'),
             ]);
         }
 
@@ -89,8 +90,8 @@ class AttendanceController extends Controller
         $reason = $result->isException() ? trim((string) ($data['location_reason'] ?? '')) : '';
         if ($result->isException() && $reason === '') {
             return back()->withErrors([
-                'location_reason' => 'Please tell HR why you are clocking ' . ($data['log_type'] === 'time_in' ? 'in' : 'out')
-                    . ' outside the authorized area (e.g. approved temporary location, GPS inaccurate).',
+                'location_reason' => 'Please tell HR why you are clocking '.($data['log_type'] === 'time_in' ? 'in' : 'out')
+                    .' outside the authorized area (e.g. approved temporary location, GPS inaccurate).',
             ])->withInput($request->except('photo'));
         }
 
@@ -109,7 +110,7 @@ class AttendanceController extends Controller
         ] + $result->toLogAttributes());
 
         $verb = $data['log_type'] === 'time_in' ? 'Clocked in' : 'Clocked out';
-        $message = "{$verb} at " . Carbon::now()->format('g:i A') . '.';
+        $message = "{$verb} at ".Carbon::now()->format('g:i A').'.';
 
         if ($result->status === GeofenceService::AUTHORIZED_ALTERNATE_LOCATION) {
             $message .= " Recorded at {$result->site->name} (your assigned project is {$result->assignedSite->name}).";
@@ -158,7 +159,7 @@ class AttendanceController extends Controller
 
         return response($soft->png($log), 200, [
             'Content-Type' => 'image/png',
-            'Content-Disposition' => 'attachment; filename="' . $soft->filename($log) . '"',
+            'Content-Disposition' => 'attachment; filename="'.$soft->filename($log).'"',
         ]);
     }
 
@@ -415,7 +416,7 @@ class AttendanceController extends Controller
 
         $verb = $data['decision'] === 'approved' ? 'approved' : 'rejected';
 
-        return back()->with('status', "Overtime {$verb} for " . optional($log->employee)->full_name . '.');
+        return back()->with('status', "Overtime {$verb} for ".optional($log->employee)->full_name.'.');
     }
 
     /**
@@ -445,7 +446,7 @@ class AttendanceController extends Controller
 
         $when = $log->logged_at->format('M j, g:i A');
 
-        return back()->with('status', "Location {$data['decision']} for " . optional($log->employee)->full_name . " ({$when}).");
+        return back()->with('status', "Location {$data['decision']} for ".optional($log->employee)->full_name." ({$when}).");
     }
 
     /** Let everyone who can review attendance know about a location exception. */
@@ -464,19 +465,13 @@ class AttendanceController extends Controller
     /** Decode a base64 data-URL selfie and store it on the public disk. */
     private function storePhoto(string $dataUrl, int $employeeId): ?string
     {
-        if (! Str::startsWith($dataUrl, 'data:image')) {
+        $decoded = DataUrlPhoto::decode($dataUrl);
+        if ($decoded === null) {
             return null;
         }
 
-        [$meta, $content] = explode(',', $dataUrl, 2);
-        $ext = Str::contains($meta, 'png') ? 'png' : 'jpg';
-        $binary = base64_decode($content, true);
-        if ($binary === false) {
-            return null;
-        }
-
-        $path = "attendance/{$employeeId}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.' . $ext;
-        Storage::disk('public')->put($path, $binary);
+        $path = "attendance/{$employeeId}/".now()->format('Ymd_His').'_'.Str::random(6).'.'.$decoded['ext'];
+        Storage::disk('public')->put($path, $decoded['binary']);
 
         return $path;
     }

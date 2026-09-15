@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $this->seedRolesAndPermissions();
+        $this->call(CheckpointPermissionSeeder::class);
         $schedules = $this->seedSchedules();
         $this->seedSites();
         $this->seedLeaveTypes();
@@ -198,7 +199,7 @@ class DatabaseSeeder extends Seeder
 
             $employee = Employee::create([
                 'user_id' => $user->id,
-                'employee_no' => 'EMP-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT),
+                'employee_no' => 'EMP-'.str_pad((string) $n, 4, '0', STR_PAD_LEFT),
                 'first_name' => $first,
                 'last_name' => $last,
                 'email' => $email,

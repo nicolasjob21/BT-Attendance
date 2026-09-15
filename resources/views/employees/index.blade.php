@@ -48,7 +48,7 @@
         <div class="overflow-hidden card">
             <div class="overflow-x-auto">
                 <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
-                    <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 whitespace-nowrap">
                         <tr>
                             <th class="px-4 py-3">Employee</th>
                             <th class="px-4 py-3">No.</th>
@@ -85,15 +85,18 @@
                                 </td>
                                 <td data-label="Monthly salary" class="px-4 py-3 text-right tabular-nums text-gray-900 dark:text-slate-100">₱{{ number_format($emp->monthly_salary, 2) }}</td>
                                 <td data-label="Status" class="px-4 py-3"><x-status-badge :status="$emp->status" /></td>
-                                <td data-label="Actions" class="px-4 py-3 text-right">
-                                    <div class="flex justify-end gap-3">
+                                <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
+                                    <div class="flex items-center justify-end gap-1">
                                         @can('view team reports')
-                                            <a href="{{ route('attendance.timesheet', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Timesheet</a>
+                                            <a href="{{ route('attendance.timesheet', $emp) }}"
+                                               class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Timesheet</a>
                                         @endcan
                                         @can('run payroll')
-                                            <a href="{{ route('employees.salary-history', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Salary history</a>
+                                            <a href="{{ route('employees.salary-history', $emp) }}"
+                                               class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Salary</a>
                                         @endcan
-                                        <a href="{{ route('employees.edit', $emp) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Edit</a>
+                                        <a href="{{ route('employees.edit', $emp) }}"
+                                           class="rounded-xs border border-brand-300 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10">Edit</a>
                                     </div>
                                 </td>
                             </tr>
