@@ -7,6 +7,7 @@ use App\Support\DataUrlPhoto;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Encoders\JpegEncoder;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Typography\FontFactory;
 use Throwable;
@@ -56,7 +57,7 @@ class CheckpointPhoto
     private function stamp(string $binary, Checkpoint $checkpoint, string $gpsStatus): ?string
     {
         try {
-            $cp = $checkpoint->loadMissing(['employee', 'site']);
+            $cp = $checkpoint->loadMissing(['employee', 'site', 'campaign']);
             $img = (new ImageManager(new Driver))->read($binary);
             $w = $img->width();
             $h = $img->height();
@@ -66,11 +67,12 @@ class CheckpointPhoto
             $lines = [
                 ($cp->employee?->full_name ?? 'Employee').' · '.($cp->site?->name ?? 'Site'),
                 now()->format('D, M j, Y g:i:s A').' · '.$cp->reference(),
-                'GPS: '.$gpsStatus.' · '.$cp->photo_instruction,
+                'GPS: '.$gpsStatus.' · '.($cp->campaign?->instruction ?? ''),
             ];
             $stripH = $lineH * count($lines) + $lineH;
 
-            $img->drawRectangle(0, $h - $stripH, function ($r) use ($w, $stripH) {
+            $img->drawRectangle(function ($r) use ($w, $h, $stripH) {
+                $r->at(0, $h - $stripH);
                 $r->size($w, $stripH);
                 $r->background('rgba(0,0,0,0.6)');
             });
@@ -80,12 +82,12 @@ class CheckpointPhoto
                     $f->filename($font);
                     $f->size($size);
                     $f->color('#ffffff');
-                    $f->valign('top');
+                    $f->align('left', 'top');
                 });
                 $y += $lineH;
             }
 
-            return (string) $img->toJpeg(82);
+            return (string) $img->encode(new JpegEncoder(82));
         } catch (Throwable) {
             return null;
         }

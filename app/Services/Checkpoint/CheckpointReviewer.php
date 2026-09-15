@@ -4,57 +4,106 @@ namespace App\Services\Checkpoint;
 
 use App\Models\AttendanceLog;
 use App\Models\Checkpoint;
+use App\Models\CheckpointReview;
 use App\Models\LeaveRequest;
 use App\Models\User;
 use App\Notifications\CheckpointReviewed;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
- * Exception review: HR classifies a missed/failed/pending checkpoint. Nothing
- * here touches pay or discipline — it only records a reviewable decision.
+ * HR follow-up on a non-compliant response. Every action is stored as a
+ * separate review record and audited; the original evidence and the
+ * campaign's start/deadline are never modified.
  */
 class CheckpointReviewer
 {
     public function __construct(private CheckpointAudit $audit) {}
 
-    public function review(Checkpoint $checkpoint, User $reviewer, string $result, ?string $remarks): Checkpoint
+    /** Record the employee's explanation (as told to HR) and the HR reason. */
+    public function recordExplanation(Checkpoint $cp, User $by, string $explanation, ?string $reason, ?string $note = null): Checkpoint
     {
-        abort_unless($checkpoint->isException(), 422, 'Only missed, failed, expired or pending checkpoints can be reviewed.');
-
-        $checkpoint->update([
-            'review_status' => 'reviewed',
-            'review_result' => $result,
-            'review_remarks' => $remarks,
-            'reviewed_by' => $reviewer->id,
-            'reviewed_at' => now(),
+        return $this->act($cp, $by, 'explanation_recorded', [
+            'explanation' => $explanation, 'reason' => $reason, 'note' => $note,
+        ], [
+            'employee_explanation' => $explanation,
+            'hr_reason' => $reason ?? $cp->hr_reason,
+            'hr_note' => $note ?: $cp->hr_note,
         ]);
-        $this->audit->checkpoint($checkpoint, 'reviewed', $reviewer, array_filter(['result' => $result, 'remarks' => $remarks]));
-        $checkpoint->employee?->user?->notify(new CheckpointReviewed($checkpoint));
-
-        return $checkpoint;
     }
 
-    /** HR adds remarks without (yet) classifying the case. */
-    public function addRemarks(Checkpoint $checkpoint, User $reviewer, string $remarks): Checkpoint
+    public function addNote(Checkpoint $cp, User $by, string $note): Checkpoint
     {
-        $checkpoint->update(['review_remarks' => $remarks]);
-        $this->audit->checkpoint($checkpoint, 'remarks_added', $reviewer, ['remarks' => $remarks]);
+        return $this->act($cp, $by, 'note_added', ['note' => $note], ['hr_note' => $note]);
+    }
 
-        return $checkpoint;
+    public function markForReview(Checkpoint $cp, User $by, ?string $note = null): Checkpoint
+    {
+        abort_unless($cp->isReviewable(), 422, 'A completed checkpoint has nothing to review.');
+
+        return $this->act($cp, $by, 'marked_for_review', ['note' => $note], [
+            'status' => Checkpoint::PENDING_REVIEW,
+            'hr_note' => $note ?: $cp->hr_note,
+        ]);
+    }
+
+    /** Approve: counts as completed after review. Stored as a review record. */
+    public function approve(Checkpoint $cp, User $by, string $reason, ?string $note = null): Checkpoint
+    {
+        abort_unless($cp->isReviewable(), 422, 'A completed checkpoint has nothing to approve.');
+
+        $cp = $this->act($cp, $by, 'approved', ['reason' => $reason, 'note' => $note], [
+            'status' => Checkpoint::APPROVED_EXCEPTION,
+            'verification_result' => Checkpoint::COMPLETED_AFTER_REVIEW,
+            'hr_reason' => $reason,
+            'hr_note' => $note ?: $cp->hr_note,
+            'reviewed_by' => $by->id,
+            'reviewed_at' => now(),
+        ]);
+        $cp->employee?->user?->notify(new CheckpointReviewed($cp));
+
+        return $cp;
+    }
+
+    public function reject(Checkpoint $cp, User $by, string $reason, ?string $note = null): Checkpoint
+    {
+        abort_unless($cp->isReviewable(), 422, 'A completed checkpoint has nothing to reject.');
+
+        $cp = $this->act($cp, $by, 'rejected', ['reason' => $reason, 'note' => $note], [
+            'status' => Checkpoint::REJECTED_EXCEPTION,
+            'verification_result' => null,
+            'hr_reason' => $reason,
+            'hr_note' => $note ?: $cp->hr_note,
+            'reviewed_by' => $by->id,
+            'reviewed_at' => now(),
+        ]);
+        $cp->employee?->user?->notify(new CheckpointReviewed($cp));
+
+        return $cp;
+    }
+
+    public function escalate(Checkpoint $cp, User $by, ?string $note = null): Checkpoint
+    {
+        abort_unless($cp->isReviewable(), 422, 'A completed checkpoint cannot be escalated.');
+
+        return $this->act($cp, $by, 'escalated', ['note' => $note], [
+            'escalated_at' => now(),
+            'hr_note' => $note ?: $cp->hr_note,
+        ]);
     }
 
     /**
-     * Movement context around the checkpoint so the reviewer can see whether
-     * an absence was already approved: the day's approved leave (incl. an
-     * early-leave "go home" request) and the employee's punches that day.
+     * Movement context around the checkpoint: the day's approved leave (incl.
+     * early-leave) and the employee's punches, so an already-approved absence
+     * is visible to the reviewer.
      *
      * @return array{approved_leave: ?LeaveRequest, punches: Collection<int, AttendanceLog>, clocked_out: bool, last_punch: ?AttendanceLog}
      */
     public function movementContext(Checkpoint $cp): array
     {
-        $day = $cp->scheduled_for->copy();
-        $at = $cp->opened_at ?? $cp->scheduled_at;
+        $at = $cp->campaign?->starts_at ?? $cp->created_at;
+        $day = $at->copy()->startOfDay();
 
         $leave = LeaveRequest::query()
             ->where('employee_id', $cp->employee_id)
@@ -65,7 +114,6 @@ class CheckpointReviewer
             ->get()
             ->first(function (LeaveRequest $l) use ($at, $day) {
                 if ($l->is_early_leave && $l->requested_time_out) {
-                    // Early leave only excuses the time after the requested out.
                     return $at->gte(Carbon::parse($day->toDateString().' '.$l->requested_time_out));
                 }
                 if ($l->day_portion === 'half_am') {
@@ -80,7 +128,7 @@ class CheckpointReviewer
 
         $punches = AttendanceLog::query()
             ->where('employee_id', $cp->employee_id)
-            ->whereBetween('logged_at', [$day->copy()->startOfDay(), $day->copy()->endOfDay()])
+            ->whereBetween('logged_at', [$day, $day->copy()->endOfDay()])
             ->with('site:id,name')
             ->orderBy('logged_at')->get();
 
@@ -92,5 +140,21 @@ class CheckpointReviewer
             'clocked_out' => $lastBefore !== null && $lastBefore->log_type === 'time_out',
             'last_punch' => $lastBefore,
         ];
+    }
+
+    private function act(Checkpoint $cp, User $by, string $action, array $review, array $attributes): Checkpoint
+    {
+        return DB::transaction(function () use ($cp, $by, $action, $review, $attributes) {
+            CheckpointReview::create([
+                'checkpoint_id' => $cp->id,
+                'reviewer_id' => $by->id,
+                'action' => $action,
+            ] + array_filter($review, fn ($v) => $v !== null && $v !== ''));
+
+            $cp->update($attributes);
+            $this->audit->checkpoint($cp, $action, $by, array_filter($review, fn ($v) => $v !== null && $v !== ''));
+
+            return $cp->refresh();
+        });
     }
 }

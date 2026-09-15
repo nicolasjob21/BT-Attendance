@@ -13,14 +13,11 @@ return [
     */
 
     'defaults' => [
-        'checkpoints_per_day' => 3,
-        'minimum_interval_minutes' => 45,
-        'maximum_interval_minutes' => 180,
         'response_window_minutes' => 10,
     ],
 
-    // Library HR picks from when configuring a campaign. Free text can be added.
-    'photo_instructions' => [
+    // Instruction library HR picks from when creating a checkpoint.
+    'instructions' => [
         'Capture the project entrance.',
         'Capture the project signboard.',
         'Capture the site office.',
@@ -29,8 +26,11 @@ return [
         'Capture the designated site landmark.',
     ],
 
-    // How often the opportunistic sweep (open due / expire lapsed checkpoints)
-    // may run from a web request when the scheduler is not running.
-    'sweep_throttle_seconds' => 30,
+    // How often the opportunistic sweep (activate scheduled / expire lapsed
+    // checkpoints) may run from a web request when the scheduler is not running.
+    'sweep_throttle_seconds' => 15,
+
+    // How often the employee's browser asks the server for an active checkpoint.
+    'poll_seconds' => 20,
 
 ];

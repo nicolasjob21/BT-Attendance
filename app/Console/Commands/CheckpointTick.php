@@ -9,15 +9,12 @@ class CheckpointTick extends Command
 {
     protected $signature = 'checkpoints:tick';
 
-    protected $description = 'Start due campaigns, generate/open random checkpoints, and expire lapsed ones';
+    protected $description = 'Start scheduled checkpoints and expire those past their shared deadline';
 
     public function handle(CheckpointDispatcher $dispatcher): int
     {
         $r = $dispatcher->tick();
-        $this->info(sprintf(
-            'started %d · generated %d · opened %d · missed %d · completed %d',
-            $r['started'], $r['generated'], $r['opened'], $r['missed'], $r['completed'],
-        ));
+        $this->info(sprintf('started %d · expired %d · marked missed %d', $r['started'], $r['expired'], $r['missed']));
 
         return self::SUCCESS;
     }

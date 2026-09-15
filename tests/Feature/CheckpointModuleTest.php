@@ -4,14 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Checkpoint;
 use App\Models\CheckpointCampaign;
+use App\Models\CheckpointReview;
 use App\Models\Employee;
 use App\Models\Site;
 use App\Models\User;
+use App\Notifications\CheckpointActivated;
 use App\Notifications\CheckpointExceptionFlagged;
-use App\Notifications\CheckpointOpened;
 use App\Notifications\CheckpointReviewed;
 use App\Services\Checkpoint\CheckpointDispatcher;
-use App\Services\Checkpoint\CheckpointScheduler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Notification;
@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * Check Point module: campaign lifecycle, server-side random scheduling,
- * opening/expiry via the dispatcher, employee submission validation,
- * exception review, permissions and evidence retention.
+ * Shared live presence checkpoint: one server start/deadline for every
+ * selected employee, server-side validation, automatic expiry, HR follow-up
+ * with separate review records, permissions and evidence retention.
  */
 class CheckpointModuleTest extends TestCase
 {
@@ -35,6 +35,10 @@ class CheckpointModuleTest extends TestCase
 
     private Employee $tech;
 
+    private Employee $second;
+
+    private User $secondUser;
+
     private Site $siteA;
 
     private Site $office;
@@ -45,15 +49,22 @@ class CheckpointModuleTest extends TestCase
         $this->seed();
         Notification::fake();
         Storage::fake('local');
-
-        // Tuesday 9:00 AM so campaigns activated "now" get a full working day.
-        Carbon::setTestNow(Carbon::parse('2026-09-15 09:00:00'));
+        Carbon::setTestNow(Carbon::parse('2026-09-15 14:30:00'));
 
         $this->hr = User::where('email', 'hr@brite-tsi.com')->firstOrFail();
         $this->techUser = User::where('email', 'tech@brite-tsi.com')->firstOrFail();
         $this->tech = $this->techUser->employee;
         $this->siteA = Site::where('type', 'project_site')->firstOrFail();
         $this->office = Site::where('type', 'office')->firstOrFail();
+
+        // A second employee so "same deadline for everyone" is actually tested.
+        $this->secondUser = User::factory()->create(['name' => 'Second Tech']);
+        $this->secondUser->assignRole('employee');
+        $this->second = Employee::create([
+            'user_id' => $this->secondUser->id, 'employee_no' => 'EMP-0099', 'first_name' => 'Second', 'last_name' => 'Tech',
+            'email' => $this->secondUser->email, 'employee_type' => 'technical', 'schedule_id' => $this->tech->schedule_id,
+            'monthly_salary' => 20000, 'daily_rate' => 909.09, 'date_hired' => '2025-01-06', 'status' => 'active',
+        ]);
     }
 
     protected function tearDown(): void
@@ -65,51 +76,45 @@ class CheckpointModuleTest extends TestCase
     private function payload(array $overrides = []): array
     {
         return array_merge([
-            'name' => 'Site A — Afternoon Presence Verification',
+            'name' => 'Site A — Afternoon presence check',
             'project_site_id' => $this->siteA->id,
-            'reason' => 'Reports indicate employees leave the site mid-day.',
-            'employees' => [$this->tech->id],
-            'start_date' => '2026-09-15',
-            'end_date' => '2026-09-17',
-            'working_start_time' => '08:30',
-            'working_end_time' => '17:30',
-            'checkpoints_per_day' => 3,
-            'minimum_interval_minutes' => 45,
-            'maximum_interval_minutes' => 180,
+            'instruction' => 'Capture the project entrance.',
+            'reason' => 'Reports of staff leaving after lunch.',
+            'employees' => [$this->tech->id, $this->second->id],
             'response_window_minutes' => 10,
-            'photo_instructions' => ['Capture the project entrance.', 'Capture the site office.'],
         ], $overrides);
     }
 
-    private function createAndActivate(array $overrides = []): CheckpointCampaign
+    private function createDraft(array $overrides = []): CheckpointCampaign
     {
         $this->actingAs($this->hr)->post(route('checkpoints.store'), $this->payload($overrides))->assertRedirect();
         $campaign = CheckpointCampaign::latest('id')->firstOrFail();
         $this->assertSame(CheckpointCampaign::DRAFT, $campaign->status);
 
+        return $campaign;
+    }
+
+    private function activate(array $overrides = []): CheckpointCampaign
+    {
+        $campaign = $this->createDraft($overrides);
         $this->actingAs($this->hr)->post(route('checkpoints.activate', $campaign))->assertRedirect();
 
         return $campaign->refresh();
     }
 
-    /** Open the first scheduled checkpoint for the tech by moving the clock to its time. */
-    private function openFirst(CheckpointCampaign $campaign): Checkpoint
+    private function responseOf(CheckpointCampaign $campaign, Employee $employee): Checkpoint
     {
-        $cp = $campaign->checkpoints()->where('employee_id', $this->tech->id)->orderBy('scheduled_at')->firstOrFail();
-        Carbon::setTestNow($cp->scheduled_at->copy()->addSeconds(5));
-        app(CheckpointDispatcher::class)->tick();
-
-        return $cp->refresh();
+        return $campaign->checkpoints()->where('employee_id', $employee->id)->firstOrFail();
     }
 
-    private function submit(Checkpoint $cp, ?float $lat, ?float $lng, array $extra = [])
+    private function submit(Checkpoint $cp, User $as, ?float $lat, ?float $lng, array $extra = [])
     {
-        return $this->actingAs($this->techUser)->post(route('my-checkpoints.submit', $cp), array_merge([
+        return $this->actingAs($as)->post(route('my-checkpoints.submit', $cp), array_merge([
             'latitude' => $lat, 'longitude' => $lng, 'gps_accuracy' => 12, 'photo' => self::PHOTO,
         ], $extra));
     }
 
-    // ── permissions ─────────────────────────────────────────────────
+    // ── permissions & navigation ────────────────────────────────────
 
     public function test_employees_cannot_open_the_management_module(): void
     {
@@ -124,352 +129,373 @@ class CheckpointModuleTest extends TestCase
         $this->actingAs($this->techUser)->get(route('dashboard'))->assertDontSee(route('checkpoints.index'))->assertSee(route('my-checkpoints.index'));
     }
 
-    // ── campaign lifecycle ──────────────────────────────────────────
+    // ── activation: one shared start and deadline ───────────────────
 
-    public function test_activating_a_campaign_generates_secret_random_checkpoints_for_today(): void
+    public function test_activation_stamps_one_server_start_and_deadline_for_every_employee(): void
     {
-        $campaign = $this->createAndActivate();
+        $campaign = $this->activate();
 
         $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->status);
+        $this->assertEquals(Carbon::parse('2026-09-15 14:30:00'), $campaign->starts_at);
+        $this->assertEquals(Carbon::parse('2026-09-15 14:40:00'), $campaign->expires_at);
         $this->assertSame($this->hr->id, $campaign->activated_by);
 
-        $cps = $campaign->checkpoints()->orderBy('scheduled_at')->get();
-        $this->assertCount(3, $cps);
-        $this->assertTrue($cps->every(fn ($c) => $c->verification_status === Checkpoint::SCHEDULED));
+        // One response row per employee — all pointing at the same campaign window.
+        $rows = $campaign->checkpoints()->get();
+        $this->assertCount(2, $rows);
+        $this->assertTrue($rows->every(fn ($cp) => $cp->status === Checkpoint::NOTIFIED && $cp->notified_at !== null));
+        $this->assertSame(1, $rows->pluck('campaign_id')->unique()->count());
 
-        // All after activation, inside the window, spaced by the configured gaps.
-        $latestOpen = Carbon::parse('2026-09-15 17:20:00');
-        foreach ($cps as $i => $cp) {
-            $this->assertTrue($cp->scheduled_at->gt(Carbon::now()), 'checkpoint must be in the future');
-            $this->assertTrue($cp->scheduled_at->lte($latestOpen), 'checkpoint must leave room for the response window');
-            if ($i > 0) {
-                $gap = $cps[$i - 1]->scheduled_at->diffInMinutes($cp->scheduled_at);
-                $this->assertGreaterThanOrEqual(45, $gap);
-                $this->assertLessThanOrEqual(180, $gap);
-            }
+        // Everyone notified with the same deadline and the required wording.
+        foreach ([$this->techUser, $this->secondUser] as $u) {
+            Notification::assertSentTo($u, CheckpointActivated::class, function (CheckpointActivated $n) use ($u) {
+                $d = $n->toArray($u);
+
+                return str_contains($d['message'], 'Live presence checkpoint active. Please complete your verification before 2:40 PM.')
+                    && $d['expires_at'] === Carbon::parse('2026-09-15 14:40:00')->toIso8601String();
+            });
         }
-
-        // Campaign page never lists upcoming times; it only counts them.
-        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))
-            ->assertOk()->assertSee('3 checkpoint(s) still to open')
-            ->assertDontSee($cps[0]->scheduled_at->format('g:i A'));
+        Notification::assertNotSentTo($this->hr, CheckpointActivated::class);
 
         $this->assertDatabaseHas('checkpoint_audit_logs', ['campaign_id' => $campaign->id, 'action' => 'activated', 'user_id' => $this->hr->id]);
+
+        // Monitoring page shows the shared times and both tables.
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()
+            ->assertSee('2:30 PM')->assertSee('2:40 PM')->assertSee('Completed employees')->assertSee('Pending employees');
     }
 
-    public function test_future_start_date_schedules_instead_of_activating_and_auto_starts_on_the_day(): void
+    public function test_scheduled_start_is_activated_by_the_server_at_that_time(): void
     {
-        $campaign = $this->createAndActivate(['start_date' => '2026-09-16', 'end_date' => '2026-09-16']);
-        $this->assertSame(CheckpointCampaign::SCHEDULED, $campaign->status);
+        $campaign = $this->createDraft();
+        $this->actingAs($this->hr)->post(route('checkpoints.schedule', $campaign), ['scheduled_start_at' => '2026-09-15 15:00'])->assertRedirect();
+        $this->assertTrue($campaign->refresh()->isScheduled());
         $this->assertSame(0, $campaign->checkpoints()->count());
 
-        Carbon::setTestNow('2026-09-16 08:00:00');
+        Carbon::setTestNow('2026-09-15 14:59:00');
         app(CheckpointDispatcher::class)->tick();
-        $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->refresh()->status);
-        $this->assertSame(3, $campaign->checkpoints()->count());
+        $this->assertSame(CheckpointCampaign::DRAFT, $campaign->refresh()->status);
 
-        // Past the end date → completed automatically, leftover scheduled ones cancelled.
-        Carbon::setTestNow('2026-09-17 00:01:00');
+        Carbon::setTestNow('2026-09-15 15:00:10');
         app(CheckpointDispatcher::class)->tick();
-        $this->assertSame(CheckpointCampaign::COMPLETED, $campaign->refresh()->status);
-        $this->assertSame(0, $campaign->checkpoints()->status(Checkpoint::SCHEDULED)->count());
-    }
-
-    public function test_infeasible_schedule_is_rejected(): void
-    {
-        $this->actingAs($this->hr)->post(route('checkpoints.store'), $this->payload([
-            'checkpoints_per_day' => 12, 'minimum_interval_minutes' => 120,
-        ]))->assertSessionHasErrors('checkpoints_per_day');
-    }
-
-    public function test_pause_skips_missed_times_and_resume_continues(): void
-    {
-        $campaign = $this->createAndActivate();
-        $first = $campaign->checkpoints()->orderBy('scheduled_at')->first();
-
-        $this->actingAs($this->hr)->post(route('checkpoints.pause', $campaign), ['reason' => 'Site meeting'])->assertRedirect();
-        $this->assertSame(CheckpointCampaign::PAUSED, $campaign->refresh()->status);
-
-        // Time passes over the first checkpoint while paused: it must NOT open.
-        Carbon::setTestNow($first->scheduled_at->copy()->addMinute());
-        app(CheckpointDispatcher::class)->tick();
-        $this->assertSame(Checkpoint::SCHEDULED, $first->refresh()->verification_status);
-        Notification::assertNothingSent();
-
-        $this->actingAs($this->hr)->post(route('checkpoints.resume', $campaign))->assertRedirect();
-        $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->refresh()->status);
-        $this->assertSame(Checkpoint::CANCELLED, $first->refresh()->verification_status);
-        $this->assertSame('campaign_paused', $first->failure_reason);
-        $this->assertSame(2, $campaign->checkpoints()->status(Checkpoint::SCHEDULED)->count());
-    }
-
-    public function test_ending_early_keeps_evidence_and_cancels_pending_checkpoints(): void
-    {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-        $this->submit($cp, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertRedirect();
-        $this->assertSame(Checkpoint::VERIFIED, $cp->refresh()->verification_status);
-
-        $this->actingAs($this->hr)->post(route('checkpoints.end', $campaign), ['reason' => 'Concern resolved'])->assertRedirect();
         $campaign->refresh();
-        $this->assertSame(CheckpointCampaign::COMPLETED, $campaign->status);
-        $this->assertSame($this->hr->id, $campaign->closed_by);
-        $this->assertNotNull($campaign->closed_at);
+        $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->status);
+        $this->assertEquals(Carbon::parse('2026-09-15 15:00:10'), $campaign->starts_at);
+        $this->assertEquals(Carbon::parse('2026-09-15 15:10:10'), $campaign->expires_at);
+        $this->assertSame(2, $campaign->checkpoints()->count());
+        Notification::assertSentTo($this->techUser, CheckpointActivated::class);
 
-        // Verified evidence survives; the queued ones are cancelled, not deleted.
-        $this->assertSame(Checkpoint::VERIFIED, $cp->refresh()->verification_status);
-        $this->assertNotNull($cp->photo_path);
-        Storage::disk('local')->assertExists($cp->photo_path);
-        $this->assertSame(3, $campaign->checkpoints()->count());
-        $this->assertSame(2, $campaign->checkpoints()->status(Checkpoint::CANCELLED)->count());
-
-        $this->actingAs($this->hr)->get(route('checkpoints.history'))->assertOk()->assertSee($campaign->name);
-        $this->actingAs($this->hr)->get(route('checkpoints.export', $campaign))->assertOk()->assertHeader('content-type', 'text/csv; charset=UTF-8');
+        // Past-time scheduling is refused.
+        $draft = $this->createDraft(['name' => 'Another']);
+        $this->actingAs($this->hr)->post(route('checkpoints.schedule', $draft), ['scheduled_start_at' => '2026-09-15 10:00'])->assertSessionHasErrors('scheduled_start_at');
     }
 
-    // ── opening & notifications ─────────────────────────────────────
-
-    public function test_dispatcher_opens_due_checkpoint_and_notifies_only_the_employee(): void
+    public function test_active_endpoint_reports_the_shared_checkpoint_to_the_employee(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->assertSame(Checkpoint::OPEN, $cp->verification_status);
-        $this->assertNotNull($cp->opened_at);
-        $this->assertEquals($cp->scheduled_at->copy()->addMinutes(10), $cp->expires_at);
+        $this->actingAs($this->techUser)->getJson(route('my-checkpoints.active'))
+            ->assertOk()
+            ->assertJsonPath('active.id', $cp->id)
+            ->assertJsonPath('active.instruction', 'Capture the project entrance.')
+            ->assertJsonPath('active.expires_at', $campaign->expires_at->toIso8601String());
 
-        Notification::assertSentTo($this->techUser, CheckpointOpened::class, function (CheckpointOpened $n) use ($cp) {
-            $data = $n->toArray($this->techUser);
-
-            return $data['checkpoint_id'] === $cp->id
-                && str_contains($data['message'], 'within 10 minutes')
-                && $data['url'] === route('my-checkpoints.show', $cp);
-        });
-        Notification::assertNotSentTo($this->hr, CheckpointOpened::class);
-
-        // The employee can now see it — with countdown, site and instruction.
-        $this->actingAs($this->techUser)->get(route('my-checkpoints.show', $cp))
-            ->assertOk()->assertSee($this->siteA->name)->assertSee($cp->photo_instruction)->assertSee('Submit Checkpoint');
-
-        // But upcoming ones are still hidden.
-        $next = $campaign->checkpoints()->status(Checkpoint::SCHEDULED)->first();
-        $this->actingAs($this->techUser)->get(route('my-checkpoints.show', $next))->assertNotFound();
+        $this->actingAs($this->hr)->getJson(route('my-checkpoints.active'))->assertOk()->assertJsonPath('active', null);
     }
 
-    public function test_unanswered_checkpoint_is_marked_missed_and_flagged_for_review(): void
+    // ── submissions ─────────────────────────────────────────────────
+
+    public function test_employees_submit_at_different_times_against_the_same_deadline(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
+        $campaign = $this->activate();
+        $a = $this->responseOf($campaign, $this->tech);
+        $b = $this->responseOf($campaign, $this->second);
 
-        Carbon::setTestNow($cp->expires_at->copy()->addMinute());
-        app(CheckpointDispatcher::class)->tick();
+        Carbon::setTestNow('2026-09-15 14:31:00');
+        $this->submit($a, $this->techUser, (float) $this->siteA->latitude + 0.0003, (float) $this->siteA->longitude)->assertRedirect(route('my-checkpoints.show', $a));
+        Carbon::setTestNow('2026-09-15 14:38:00');
+        $this->submit($b, $this->secondUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertRedirect();
 
+        $a->refresh();
+        $b->refresh();
+        $this->assertSame(Checkpoint::RESPONDED, $a->status);
+        $this->assertSame(Checkpoint::COMPLETED, $a->verification_result);
+        $this->assertEquals(Carbon::parse('2026-09-15 14:31:00'), $a->submitted_at);
+        $this->assertSame(60, $a->setRelation('campaign', $campaign)->responseSeconds());
+        $this->assertTrue($a->within_geofence);
+        $this->assertNotNull($a->photo_path);
+        Storage::disk('local')->assertExists($a->photo_path);
+
+        $this->assertSame(Checkpoint::RESPONDED, $b->status);
+        $this->assertEquals(Carbon::parse('2026-09-15 14:38:00'), $b->submitted_at);
+
+        // The deadline did not move for anyone.
+        $this->assertEquals(Carbon::parse('2026-09-15 14:40:00'), $campaign->refresh()->expires_at);
+
+        // A second successful submission is refused; evidence untouched.
+        $before = $a->only(['latitude', 'longitude', 'photo_path', 'submitted_at']);
+        $this->submit($a, $this->techUser, 0.0, 0.0)->assertSessionHasErrors('checkpoint');
+        $this->assertEquals($before, $a->refresh()->only(['latitude', 'longitude', 'photo_path', 'submitted_at']));
+    }
+
+    public function test_submission_after_the_deadline_is_refused_and_employee_is_missed(): void
+    {
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
+
+        Carbon::setTestNow('2026-09-15 14:41:00');
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertSessionHasErrors('checkpoint');
         $cp->refresh();
-        $this->assertSame(Checkpoint::MISSED, $cp->verification_status);
-        $this->assertSame('pending', $cp->review_status);
+        $this->assertNull($cp->submitted_at);
+        $this->assertSame('checkpoint_expired', $cp->last_attempt_result);
+
+        app(CheckpointDispatcher::class)->tick();
+        $campaign->refresh();
+        $cp->refresh();
+        $this->assertSame(CheckpointCampaign::EXPIRED, $campaign->status);
+        $this->assertSame(Checkpoint::MISSED, $cp->status);
+        $this->assertSame(Checkpoint::MISSED, $this->responseOf($campaign, $this->second)->status);
         Notification::assertSentTo($this->hr, CheckpointExceptionFlagged::class);
 
-        // Employee may add an explanation; late submission is refused.
-        $this->submit($cp, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertSessionHasErrors('checkpoint');
-        $this->actingAs($this->techUser)->post(route('my-checkpoints.explain', $cp), ['employee_explanation' => 'Phone had no signal in the basement.'])->assertRedirect();
-        $this->assertSame('Phone had no signal in the basement.', $cp->refresh()->employee_explanation);
+        // After reconnecting the employee sees the miss and can explain it.
+        $this->actingAs($this->techUser)->get(route('my-checkpoints.show', $cp))->assertOk()->assertSee('Explain to HR');
+        $this->actingAs($this->techUser)->post(route('my-checkpoints.explain', $cp), [
+            'employee_explanation' => 'No signal in the basement.', 'issue' => 'no_internet',
+        ])->assertRedirect();
+        $cp->refresh();
+        $this->assertSame('No signal in the basement.', $cp->employee_explanation);
+        $this->assertSame('No internet reported', $cp->status_label);
     }
 
-    // ── submission validation ───────────────────────────────────────
-
-    public function test_submission_inside_the_project_site_is_verified(): void
+    public function test_outside_geofence_can_be_retried_and_is_flagged_if_never_fixed(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->submit($cp, (float) $this->siteA->latitude + 0.0003, (float) $this->siteA->longitude)->assertRedirect(route('my-checkpoints.show', $cp));
-
+        Carbon::setTestNow('2026-09-15 14:36:00');
+        $this->submit($cp, $this->techUser, 14.40, 121.20)->assertSessionHasErrors('attempt');
         $cp->refresh();
-        $this->assertSame(Checkpoint::VERIFIED, $cp->verification_status);
-        $this->assertNull($cp->failure_reason);
-        $this->assertTrue($cp->within_geofence);
-        $this->assertNull($cp->review_status);
-        $this->assertNotNull($cp->submitted_at);
-        $this->assertEquals(Carbon::now(), $cp->server_timestamp);
-        $this->assertLessThan(200, (float) $cp->distance_from_site_meters);
-        $this->assertNotNull($cp->photo_path);
-        Storage::disk('local')->assertExists($cp->photo_path);
-        Notification::assertNotSentTo($this->hr, CheckpointExceptionFlagged::class);
+        $this->assertSame(Checkpoint::OUTSIDE_GEOFENCE, $cp->status);
+        $this->assertSame(1, $cp->submission_attempts);
+        $this->assertNull($cp->submitted_at);
 
-        // Duplicate submissions are refused and the stored evidence is untouched.
-        $before = $cp->only(['latitude', 'longitude', 'photo_path', 'submitted_at']);
-        $this->submit($cp, 0.0, 0.0)->assertSessionHasErrors('checkpoint');
-        $this->assertEquals($before, $cp->refresh()->only(['latitude', 'longitude', 'photo_path', 'submitted_at']));
-    }
-
-    public function test_submission_outside_every_geofence_fails_and_creates_an_exception(): void
-    {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-
-        $this->submit($cp, 14.40, 121.20)->assertRedirect();
-
+        // Still inside the window: a retry from inside the fence completes it.
+        Carbon::setTestNow('2026-09-15 14:38:00');
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertRedirect();
         $cp->refresh();
-        $this->assertSame(Checkpoint::FAILED, $cp->verification_status);
-        $this->assertSame('outside_geofence', $cp->failure_reason);
-        $this->assertFalse($cp->within_geofence);
-        $this->assertSame('pending', $cp->review_status);
-        Notification::assertSentTo($this->hr, CheckpointExceptionFlagged::class);
-    }
+        $this->assertSame(Checkpoint::RESPONDED, $cp->status);
+        $this->assertSame(2, $cp->submission_attempts);
 
-    public function test_submission_at_the_office_or_with_weak_gps_goes_to_pending_review(): void
-    {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-        $this->submit($cp, (float) $this->office->latitude, (float) $this->office->longitude)->assertRedirect();
-        $cp->refresh();
-        $this->assertSame(Checkpoint::PENDING_REVIEW, $cp->verification_status);
-        $this->assertSame($this->office->id, $cp->matched_site_id);
-
-        // Low accuracy, even inside the fence, is only pending — not verified.
-        $second = $campaign->checkpoints()->status(Checkpoint::SCHEDULED)->orderBy('scheduled_at')->first();
-        Carbon::setTestNow($second->scheduled_at->copy()->addSeconds(5));
+        // The other employee stays outside → remains OUTSIDE_GEOFENCE after expiry (not MISSED).
+        $other = $this->responseOf($campaign, $this->second);
+        $this->submit($other, $this->secondUser, 14.40, 121.20)->assertSessionHasErrors('attempt');
+        Carbon::setTestNow('2026-09-15 14:41:00');
         app(CheckpointDispatcher::class)->tick();
-        $this->submit($second->refresh(), (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['gps_accuracy' => 900])->assertRedirect();
-        $this->assertSame('low_gps_accuracy', $second->refresh()->failure_reason);
-        $this->assertSame(Checkpoint::PENDING_REVIEW, $second->verification_status);
+        $this->assertSame(Checkpoint::OUTSIDE_GEOFENCE, $other->refresh()->status);
+    }
+
+    public function test_weak_gps_inside_fence_completes_with_low_accuracy_and_office_goes_to_review(): void
+    {
+        $campaign = $this->activate();
+        $a = $this->responseOf($campaign, $this->tech);
+        $b = $this->responseOf($campaign, $this->second);
+
+        $this->submit($a, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['gps_accuracy' => 900])->assertRedirect();
+        $a->refresh();
+        $this->assertSame(Checkpoint::RESPONDED, $a->status);
+        $this->assertSame(Checkpoint::COMPLETED_LOW_ACCURACY, $a->verification_result);
+
+        $this->submit($b, $this->secondUser, (float) $this->office->latitude, (float) $this->office->longitude)->assertSessionHasErrors('attempt');
+        $b->refresh();
+        $this->assertSame(Checkpoint::PENDING_REVIEW, $b->status);
+        $this->assertSame($this->office->id, $b->matched_site_id);
 
         // No GPS at all.
-        $third = $campaign->checkpoints()->status(Checkpoint::SCHEDULED)->orderBy('scheduled_at')->first();
-        Carbon::setTestNow($third->scheduled_at->copy()->addSeconds(5));
-        app(CheckpointDispatcher::class)->tick();
-        $this->submit($third->refresh(), null, null)->assertRedirect();
-        $this->assertSame('gps_unavailable', $third->refresh()->failure_reason);
+        $c2 = $this->activate(['name' => 'Second check']);
+        $x = $this->responseOf($c2, $this->tech);
+        $this->submit($x, $this->techUser, null, null)->assertSessionHasErrors('attempt');
+        $this->assertSame(Checkpoint::GPS_UNAVAILABLE, $x->refresh()->status);
     }
 
     public function test_photo_is_mandatory_and_must_be_a_live_capture_data_url(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->submit($cp, (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['photo' => ''])->assertSessionHasErrors('photo');
-        $this->submit($cp, (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['photo' => 'https://example.com/gallery.jpg'])->assertSessionHasErrors('photo');
-        $this->assertSame(Checkpoint::OPEN, $cp->refresh()->verification_status);
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['photo' => ''])->assertSessionHasErrors('photo');
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude, ['photo' => 'https://example.com/gallery.jpg'])->assertSessionHasErrors('photo');
+        $this->assertSame(Checkpoint::NOTIFIED, $cp->refresh()->status);
+        $this->assertSame(0, $cp->submission_attempts);
     }
 
-    public function test_only_the_owner_can_submit_their_checkpoint(): void
+    public function test_only_the_owner_can_submit_and_report_issues(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->actingAs($this->hr)->post(route('my-checkpoints.submit', $cp), ['photo' => self::PHOTO])->assertForbidden();
-        $this->actingAs($this->hr)->get(route('my-checkpoints.show', $cp))->assertForbidden();
+        $this->actingAs($this->secondUser)->post(route('my-checkpoints.submit', $cp), ['photo' => self::PHOTO])->assertForbidden();
+        $this->actingAs($this->secondUser)->get(route('my-checkpoints.show', $cp))->assertForbidden();
+
+        $this->actingAs($this->techUser)->postJson(route('my-checkpoints.issue', $cp), ['issue' => 'camera_denied'])->assertOk();
+        $this->assertSame(Checkpoint::CAMERA_PERMISSION_DENIED, $cp->refresh()->status);
     }
 
-    // ── review ──────────────────────────────────────────────────────
+    // ── pause / resume / end / cancel / complete ────────────────────
 
-    public function test_hr_reviews_an_exception_and_the_employee_is_notified(): void
+    public function test_pause_freezes_submissions_and_resume_extends_the_shared_deadline(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-        $this->submit($cp, 14.40, 121.20);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->actingAs($this->hr)->get(route('checkpoints.results.show', $cp))
-            ->assertOk()->assertSee('Exception review')->assertSee('No approved leave-site record');
+        Carbon::setTestNow('2026-09-15 14:33:00');
+        $this->actingAs($this->hr)->post(route('checkpoints.pause', $campaign), ['reason' => 'Site alarm'])->assertRedirect();
+        $this->assertSame(CheckpointCampaign::PAUSED, $campaign->refresh()->status);
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertSessionHasErrors('checkpoint');
 
-        $this->actingAs($this->hr)->post(route('checkpoints.results.review', $cp), [
-            'review_result' => 'approved_official_errand', 'review_remarks' => 'Sent to supplier by the PM.',
-        ])->assertRedirect();
+        // Paused past the original deadline: it must NOT expire.
+        Carbon::setTestNow('2026-09-15 14:45:00');
+        app(CheckpointDispatcher::class)->tick();
+        $this->assertSame(CheckpointCampaign::PAUSED, $campaign->refresh()->status);
+
+        $this->actingAs($this->hr)->post(route('checkpoints.resume', $campaign))->assertRedirect();
+        $campaign->refresh();
+        $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->status);
+        $this->assertEquals(Carbon::parse('2026-09-15 14:52:00'), $campaign->expires_at, '12 paused minutes are added for everyone');
+
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude)->assertRedirect();
+        $this->assertSame(Checkpoint::RESPONDED, $cp->refresh()->status);
+    }
+
+    public function test_end_now_cancel_and_complete_keep_evidence(): void
+    {
+        $campaign = $this->activate();
+        $a = $this->responseOf($campaign, $this->tech);
+        $this->submit($a, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude);
+
+        $this->actingAs($this->hr)->post(route('checkpoints.end', $campaign))->assertRedirect();
+        $campaign->refresh();
+        $this->assertSame(CheckpointCampaign::EXPIRED, $campaign->status);
+        $this->assertSame(Checkpoint::RESPONDED, $a->refresh()->status);
+        $this->assertSame(Checkpoint::MISSED, $this->responseOf($campaign, $this->second)->status);
+        Storage::disk('local')->assertExists($a->photo_path);
+
+        $this->actingAs($this->hr)->post(route('checkpoints.complete', $campaign))->assertRedirect();
+        $campaign->refresh();
+        $this->assertSame(CheckpointCampaign::COMPLETED, $campaign->status);
+        $this->assertSame($this->hr->id, $campaign->closed_by);
+
+        $draft = $this->createDraft(['name' => 'Draft one']);
+        $this->actingAs($this->hr)->post(route('checkpoints.cancel', $draft), ['reason' => 'Not needed'])->assertRedirect(route('checkpoints.index'));
+        $this->assertSame(CheckpointCampaign::CANCELLED, $draft->refresh()->status);
+
+        $this->actingAs($this->hr)->get(route('checkpoints.history'))->assertOk()->assertSee($campaign->name)->assertSee('Draft one');
+        $this->actingAs($this->hr)->get(route('checkpoints.export', $campaign))->assertOk()->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
+    // ── HR follow-up ────────────────────────────────────────────────
+
+    public function test_hr_follow_up_creates_review_records_and_never_edits_the_official_times(): void
+    {
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
+        Carbon::setTestNow('2026-09-15 14:41:00');
+        app(CheckpointDispatcher::class)->tick();
+        $this->assertSame(Checkpoint::MISSED, $cp->refresh()->status);
+        $original = [$campaign->refresh()->starts_at, $campaign->expires_at, $cp->server_timestamp];
+
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSee('Follow-up needed')->assertSee('Mark for review');
+        $this->actingAs($this->hr)->get(route('checkpoints.results.show', $cp))->assertOk()->assertSee('HR follow-up')->assertSee('No approved leave record');
+
+        $url = route('checkpoints.results.follow-up', $cp);
+        $this->actingAs($this->hr)->post($url, ['action' => 'explanation', 'explanation' => 'Phone died.', 'reason' => 'device_problem'])->assertRedirect();
+        $this->actingAs($this->hr)->post($url, ['action' => 'note', 'note' => 'Second time this month.'])->assertRedirect();
+        $this->actingAs($this->hr)->post($url, ['action' => 'mark_review'])->assertRedirect();
+        $this->assertSame(Checkpoint::PENDING_REVIEW, $cp->refresh()->status);
+        $this->actingAs($this->hr)->post($url, ['action' => 'escalate', 'note' => 'For the PM.'])->assertRedirect();
+        $this->assertNotNull($cp->refresh()->escalated_at);
+        $this->actingAs($this->hr)->post($url, ['action' => 'approve'])->assertSessionHasErrors('reason');
+        $this->actingAs($this->hr)->post($url, ['action' => 'approve', 'reason' => 'work_related', 'note' => 'Sent to supplier by PM.'])->assertRedirect();
 
         $cp->refresh();
-        $this->assertSame('reviewed', $cp->review_status);
-        $this->assertSame('approved_official_errand', $cp->review_result);
+        $this->assertSame(Checkpoint::APPROVED_EXCEPTION, $cp->status);
+        $this->assertSame(Checkpoint::COMPLETED_AFTER_REVIEW, $cp->verification_result);
+        $this->assertTrue($cp->isCompleted());
         $this->assertSame($this->hr->id, $cp->reviewed_by);
-        $this->assertSame(Checkpoint::FAILED, $cp->verification_status, 'review classifies; it does not rewrite the evidence');
+        $this->assertSame('Phone died.', $cp->employee_explanation);
         Notification::assertSentTo($this->techUser, CheckpointReviewed::class);
-        $this->assertDatabaseHas('checkpoint_audit_logs', ['checkpoint_id' => $cp->id, 'action' => 'reviewed', 'user_id' => $this->hr->id]);
 
-        $this->actingAs($this->techUser)->post(route('checkpoints.results.review', $cp), ['review_result' => 'valid_reason'])->assertForbidden();
+        // Separate review records, one per action, in order.
+        $this->assertSame(
+            ['approved', 'escalated', 'marked_for_review', 'note_added', 'explanation_recorded'],
+            CheckpointReview::where('checkpoint_id', $cp->id)->orderByDesc('id')->pluck('action')->all(),
+        );
+        // Official times untouched.
+        $this->assertEquals($original, [$campaign->refresh()->starts_at, $campaign->expires_at, $cp->server_timestamp]);
+
+        // Approved rows move to the completed table.
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSee('Completed after review');
+
+        // Rejection path + permission gate.
+        $other = $this->responseOf($campaign, $this->second);
+        $this->actingAs($this->hr)->post(route('checkpoints.results.follow-up', $other), ['action' => 'reject', 'reason' => 'ignored'])->assertRedirect();
+        $this->assertSame(Checkpoint::REJECTED_EXCEPTION, $other->refresh()->status);
+        $this->actingAs($this->techUser)->post(route('checkpoints.results.follow-up', $other), ['action' => 'approve', 'reason' => 'other'])->assertForbidden();
     }
 
-    public function test_approved_early_leave_is_shown_during_review(): void
+    public function test_approved_early_leave_is_shown_during_follow_up(): void
     {
-        $campaign = $this->createAndActivate(['working_start_time' => '08:30', 'working_end_time' => '17:30', 'checkpoints_per_day' => 1, 'minimum_interval_minutes' => 5, 'maximum_interval_minutes' => 30]);
-        $cp = $this->openFirst($campaign);
-
         $this->tech->leaveRequests()->create([
             'date_from' => '2026-09-15', 'date_to' => '2026-09-15', 'days' => 0.5, 'day_portion' => 'half_pm',
-            'is_early_leave' => true, 'requested_time_out' => '09:00:00', 'reason' => 'Sick', 'status' => 'approved',
+            'is_early_leave' => true, 'requested_time_out' => '14:00:00', 'reason' => 'Sick', 'status' => 'approved',
         ]);
-
-        Carbon::setTestNow($cp->expires_at->copy()->addMinute());
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
+        Carbon::setTestNow('2026-09-15 14:41:00');
         app(CheckpointDispatcher::class)->tick();
 
-        $this->actingAs($this->hr)->get(route('checkpoints.results.show', $cp))
-            ->assertOk()->assertSee('Approved early leave covers this checkpoint');
+        $this->actingAs($this->hr)->get(route('checkpoints.results.show', $cp))->assertOk()->assertSee('Approved early leave covers this checkpoint');
     }
 
-    // ── photo access ────────────────────────────────────────────────
+    // ── photo access & page rendering ───────────────────────────────
 
     public function test_checkpoint_photos_are_private(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-        $this->submit($cp, (float) $this->siteA->latitude, (float) $this->siteA->longitude);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
+        $this->submit($cp, $this->techUser, (float) $this->siteA->latitude, (float) $this->siteA->longitude);
 
-        $other = User::factory()->create();
-        $this->actingAs($other)->get(route('checkpoints.photo', $cp))->assertForbidden();
+        $this->actingAs($this->secondUser)->get(route('checkpoints.photo', $cp))->assertForbidden();
         $this->actingAs($this->techUser)->get(route('checkpoints.photo', $cp))->assertOk();
         $this->actingAs($this->hr)->get(route('checkpoints.photo', $cp))->assertOk();
     }
 
     public function test_every_module_page_renders(): void
     {
-        $campaign = $this->createAndActivate();
-        $cp = $this->openFirst($campaign);
-        $this->submit($cp, 14.40, 121.20);
+        $campaign = $this->activate();
+        $cp = $this->responseOf($campaign, $this->tech);
 
-        $this->actingAs($this->hr)->get(route('checkpoints.create'))->assertOk()->assertSee('Create Checkpoint Campaign');
-        $this->actingAs($this->hr)->get(route('checkpoints.results.index', ['review' => 'pending']))->assertOk()->assertSee($cp->reference());
+        $this->actingAs($this->techUser)->get(route('my-checkpoints.index'))->assertOk()->assertSee('Live presence checkpoint active');
+        $this->actingAs($this->techUser)->get(route('my-checkpoints.show', $cp))->assertOk()->assertSee('Submit Checkpoint')->assertSee('Capture the project entrance.');
+        $this->assertNotNull($cp->refresh()->seen_at);
+
+        $this->actingAs($this->hr)->get(route('checkpoints.create'))->assertOk()->assertSee('Create Checkpoint');
+        $this->actingAs($this->hr)->get(route('checkpoints.results.index', ['follow' => 'open']))->assertOk();
         $this->actingAs($this->hr)->get(route('checkpoints.settings'))->assertOk();
-        $this->actingAs($this->hr)->put(route('checkpoints.settings.update'), [
-            'checkpoints_per_day' => 2, 'minimum_interval_minutes' => 30, 'maximum_interval_minutes' => 120,
-            'response_window_minutes' => 15, 'photo_instructions' => "Capture the gate.\nCapture the crane.",
-        ])->assertRedirect();
+        $this->actingAs($this->hr)->put(route('checkpoints.settings.update'), ['response_window_minutes' => 15, 'instructions' => "Capture the gate.\nCapture the crane."])->assertRedirect();
         $this->actingAs($this->hr)->get(route('checkpoints.create'))->assertOk()->assertSee('Capture the crane.');
-        $this->actingAs($this->hr)->get(route('checkpoints.index'))->assertOk()->assertSee('Exceptions requiring review');
+        $this->actingAs($this->hr)->getJson(route('checkpoints.status', $campaign))->assertOk()->assertJsonPath('total', 2);
 
-        $this->actingAs($this->techUser)->get(route('my-checkpoints.index'))->assertOk()->assertSee($cp->reference());
-        $this->actingAs($this->techUser)->get(route('my-checkpoints.show', $cp))->assertOk()->assertSee('Explain to HR');
+        // Daily monitor: today (with and without the site filter), and an empty day.
+        $this->actingAs($this->hr)->get(route('checkpoints.daily'))->assertOk()->assertSee($campaign->name)->assertSee('Employee responses')->assertSee('Second Tech');
+        $this->actingAs($this->hr)->get(route('checkpoints.daily', ['date' => '2026-09-15', 'site' => $this->siteA->id]))->assertOk()->assertSee($campaign->name);
+        $this->actingAs($this->hr)->get(route('checkpoints.daily', ['date' => '2026-09-15', 'site' => $this->office->id]))->assertOk()->assertDontSee($campaign->name);
+        $this->actingAs($this->hr)->get(route('checkpoints.daily', ['date' => '2026-09-14']))->assertOk()->assertSee('No checkpoint ran on this day');
+        $this->actingAs($this->techUser)->get(route('checkpoints.daily'))->assertForbidden();
+        $this->actingAs($this->hr)->get(route('checkpoints.history', ['status' => 'active', 'site' => $this->siteA->id, 'from' => '2026-09-15', 'to' => '2026-09-15']))->assertOk()->assertSee($campaign->name);
 
-        // Draft edit form.
-        $this->actingAs($this->hr)->post(route('checkpoints.store'), $this->payload(['name' => 'Draft one']));
-        $draft = CheckpointCampaign::where('name', 'Draft one')->firstOrFail();
-        $this->actingAs($this->hr)->get(route('checkpoints.edit', $draft))->assertOk()->assertSee('Edit Checkpoint Campaign');
-        $this->actingAs($this->hr)->post(route('checkpoints.cancel', $draft))->assertRedirect(route('checkpoints.index'));
-        $this->assertSame(CheckpointCampaign::CANCELLED, $draft->refresh()->status);
-    }
-
-    // ── scheduler math ──────────────────────────────────────────────
-
-    public function test_random_times_respect_window_and_gaps(): void
-    {
-        $s = new CheckpointScheduler;
-        $from = Carbon::parse('2026-09-15 08:30');
-        $to = Carbon::parse('2026-09-15 17:20');
-
-        for ($run = 0; $run < 50; $run++) {
-            $times = $s->randomTimes($from, $to, 3, 45, 180);
-            $this->assertCount(3, $times);
-            $this->assertTrue($times[0]->gte($from) && $times[0]->lte($from->copy()->addMinutes(180)));
-            foreach ($times as $i => $t) {
-                $this->assertTrue($t->lte($to));
-                if ($i > 0) {
-                    $gap = $times[$i - 1]->diffInMinutes($t);
-                    $this->assertGreaterThanOrEqual(45, $gap);
-                    $this->assertLessThanOrEqual(180, $gap);
-                }
-            }
-        }
-
-        // Too small a window shrinks the count rather than failing.
-        $this->assertCount(1, $s->randomTimes($from, $from->copy()->addMinutes(30), 3, 45, 180));
-        $this->assertNotNull($s->validate(60, 3, 45, 180, 10));
-        $this->assertNull($s->validate(540, 3, 45, 180, 10));
+        $draft = $this->createDraft(['name' => 'Draft two']);
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $draft))->assertOk()->assertSee('Review before activating')->assertSee('Activate now');
+        $this->actingAs($this->hr)->get(route('checkpoints.edit', $draft))->assertOk()->assertSee('Edit Checkpoint');
+        $this->actingAs($this->hr)->get(route('checkpoints.index'))->assertOk()->assertSee('Draft two');
     }
 }

@@ -9,15 +9,13 @@ use App\Models\Site;
 use App\Services\Checkpoint\CampaignManager;
 use App\Services\Checkpoint\CheckpointAudit;
 use App\Services\Checkpoint\CheckpointDispatcher;
-use App\Services\Checkpoint\CheckpointScheduler;
 use App\Services\Checkpoint\CheckpointSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-/** Check Point module: dashboard, campaign CRUD and lifecycle controls. */
+/** Check Point module: dashboard, checkpoint CRUD, lifecycle controls, monitoring page. */
 class CheckpointCampaignController extends Controller
 {
     public function __construct(
@@ -25,69 +23,118 @@ class CheckpointCampaignController extends Controller
         private CheckpointDispatcher $dispatcher,
     ) {}
 
-    /** Module dashboard: summary cards, live campaigns, pending reviews, activity. */
-    public function index(Request $request)
+    /** Module dashboard: live checkpoints, drafts, follow-ups, recent history. */
+    public function index()
     {
         $this->dispatcher->sweep();
 
-        $live = CheckpointCampaign::status([CheckpointCampaign::ACTIVE, CheckpointCampaign::PAUSED])
-            ->with('site:id,name')->withCount('participants')
-            ->orderByRaw("status = 'active' desc")->latest('activated_at')->get();
-        $scheduled = CheckpointCampaign::status([CheckpointCampaign::SCHEDULED, CheckpointCampaign::DRAFT])
-            ->with('site:id,name')->withCount('participants')
-            ->orderBy('start_date')->get();
-        $recentHistory = CheckpointCampaign::history()
-            ->with(['site:id,name', 'closer:id,name'])->withCount('participants')
-            ->latest('updated_at')->take(5)->get();
+        $withCounts = fn ($q) => $q->with('site:id,name')->withCount([
+            'participants',
+            'checkpoints as completed_count' => fn ($c) => $c->completed(),
+            'checkpoints as non_compliant_count' => fn ($c) => $c->nonCompliant(),
+        ]);
 
-        $liveIds = $live->pluck('id');
-        $counts = Checkpoint::whereIn('campaign_id', $liveIds)
-            ->select('verification_status', DB::raw('count(*) as n'))
-            ->groupBy('verification_status')->pluck('n', 'verification_status');
+        $live = $withCounts(CheckpointCampaign::live())->orderByRaw("status = 'active' desc")->latest('starts_at')->get();
+        $drafts = $withCounts(CheckpointCampaign::status(CheckpointCampaign::DRAFT))->orderByRaw('scheduled_start_at is null')->orderBy('scheduled_start_at')->latest('id')->get();
+        $expired = $withCounts(CheckpointCampaign::status(CheckpointCampaign::EXPIRED))->latest('expires_at')->get();
+        $recentHistory = $withCounts(CheckpointCampaign::history())->with('closer:id,name')->latest('updated_at')->take(5)->get();
 
-        $stats = [
-            'active_campaigns' => $live->where('status', CheckpointCampaign::ACTIVE)->count(),
-            'paused_campaigns' => $live->where('status', CheckpointCampaign::PAUSED)->count(),
-            'employees' => DB::table('checkpoint_campaign_participants')->whereIn('campaign_id', $liveIds)->distinct()->count('employee_id'),
-            'generated' => (int) $counts->sum(),
-            'verified' => (int) ($counts[Checkpoint::VERIFIED] ?? 0),
-            'missed' => (int) ($counts[Checkpoint::MISSED] ?? 0) + (int) ($counts[Checkpoint::EXPIRED] ?? 0),
-            'failed' => (int) ($counts[Checkpoint::FAILED] ?? 0),
-            'open' => (int) ($counts[Checkpoint::OPEN] ?? 0),
-            'pending_reviews' => Checkpoint::pendingReview()->count(),
-        ];
-
-        $pending = Checkpoint::pendingReview()
-            ->with(['employee:id,first_name,last_name,employee_no', 'site:id,name', 'campaign:id,name'])
-            ->latest('scheduled_at')->take(15)->get();
-
-        $activity = Checkpoint::whereNotIn('verification_status', [Checkpoint::SCHEDULED])
-            ->with(['employee:id,first_name,last_name,employee_no', 'site:id,name', 'campaign:id,name', 'reviewer:id,name'])
+        $followUps = Checkpoint::nonCompliant()->whereNull('reviewed_at')
+            ->whereHas('campaign', fn ($q) => $q->whereIn('status', [CheckpointCampaign::EXPIRED, CheckpointCampaign::COMPLETED]))
+            ->with(['employee:id,first_name,last_name,employee_no', 'site:id,name', 'campaign:id,name,expires_at'])
             ->latest('updated_at')->take(15)->get();
 
-        // Employees with 2+ exceptions in the last 30 days.
-        $repeat = Checkpoint::exceptions()
-            ->where('scheduled_at', '>=', Carbon::now()->subDays(30))
-            ->select('employee_id', DB::raw('count(*) as exceptions'))
-            ->groupBy('employee_id')->having('exceptions', '>=', 2)
-            ->orderByDesc('exceptions')->take(8)
-            ->with('employee:id,first_name,last_name,employee_no')->get();
+        $stats = [
+            'active' => $live->where('status', CheckpointCampaign::ACTIVE)->count(),
+            'paused' => $live->where('status', CheckpointCampaign::PAUSED)->count(),
+            'employees_live' => DB::table('checkpoint_campaign_participants')->whereIn('campaign_id', $live->pluck('id'))->distinct()->count('employee_id'),
+            'completed_live' => (int) $live->sum('completed_count'),
+            'awaiting_followup' => Checkpoint::nonCompliant()->whereNull('reviewed_at')->count(),
+            'pending_review' => Checkpoint::needsReview()->count(),
+            'escalated' => Checkpoint::whereNotNull('escalated_at')->whereNull('reviewed_at')->count(),
+            'expired_open' => $expired->count(),
+        ];
 
-        return view('checkpoints.index', compact('live', 'scheduled', 'recentHistory', 'stats', 'pending', 'activity', 'repeat'));
+        return view('checkpoints.index', compact('live', 'drafts', 'expired', 'recentHistory', 'followUps', 'stats'));
     }
 
-    /** Full campaign history (completed / cancelled), paginated. */
     public function history(Request $request)
     {
         $status = $request->input('status');
+        $siteId = $request->integer('site') ?: null;
+        $from = $request->input('from');
+        $to = $request->input('to');
+
         $campaigns = CheckpointCampaign::query()
             ->when($status && isset(CheckpointCampaign::STATUSES[$status]), fn ($q) => $q->where('status', $status), fn ($q) => $q->history())
+            ->when($siteId, fn ($q, $v) => $q->where('project_site_id', $v))
+            ->when($from, fn ($q, $v) => $q->whereDate('starts_at', '>=', Carbon::parse($v)->toDateString()))
+            ->when($to, fn ($q, $v) => $q->whereDate('starts_at', '<=', Carbon::parse($v)->toDateString()))
             ->with(['site:id,name', 'creator:id,name', 'closer:id,name'])->withCount('participants')
-            ->withCount(['checkpoints as verified_count' => fn ($q) => $q->where('verification_status', Checkpoint::VERIFIED)])
-            ->withCount(['checkpoints as exception_count' => fn ($q) => $q->exceptions()])
-            ->latest('updated_at')->paginate(20)->withQueryString();
+            ->withCount(['checkpoints as completed_count' => fn ($q) => $q->completed()])
+            ->withCount(['checkpoints as non_compliant_count' => fn ($q) => $q->nonCompliant()])
+            ->latest('starts_at')->latest('id')->paginate(20)->withQueryString();
 
-        return view('checkpoints.history', compact('campaigns', 'status'));
+        $sites = Site::orderBy('name')->get(['id', 'name']);
+
+        return view('checkpoints.history', compact('campaigns', 'status', 'siteId', 'from', 'to', 'sites'));
+    }
+
+    /**
+     * Daily monitor: every checkpoint that ran on one day (optionally one
+     * site) and an employee × checkpoint grid of their responses.
+     */
+    public function daily(Request $request)
+    {
+        $this->dispatcher->sweep();
+
+        $date = $request->filled('date') ? Carbon::parse($request->input('date'))->startOfDay() : Carbon::today();
+        $siteId = $request->integer('site') ?: null;
+        $sites = Site::orderByRaw("type = 'project_site' desc")->orderBy('name')->get(['id', 'name', 'type']);
+
+        $campaigns = CheckpointCampaign::query()
+            ->whereNotNull('starts_at')
+            ->whereBetween('starts_at', [$date, $date->copy()->endOfDay()])
+            ->when($siteId, fn ($q, $v) => $q->where('project_site_id', $v))
+            ->with(['site:id,name', 'checkpoints.employee:id,first_name,last_name,employee_no'])
+            ->withCount([
+                'participants',
+                'checkpoints as completed_count' => fn ($c) => $c->completed(),
+                'checkpoints as non_compliant_count' => fn ($c) => $c->nonCompliant(),
+            ])
+            ->orderBy('starts_at')->get();
+
+        // Grid: one row per employee who was included in any checkpoint that
+        // day, one column per checkpoint; cell = their response (or null).
+        $grid = [];
+        foreach ($campaigns as $c) {
+            foreach ($c->checkpoints as $cp) {
+                $emp = $cp->employee;
+                if (! $emp) {
+                    continue;
+                }
+                $grid[$emp->id]['employee'] ??= $emp;
+                $grid[$emp->id]['cells'][$c->id] = $cp->setRelation('campaign', $c);
+            }
+        }
+        uasort($grid, fn ($a, $b) => strcmp($a['employee']->full_name, $b['employee']->full_name));
+
+        $totals = [
+            'checkpoints' => $campaigns->count(),
+            'employees' => count($grid),
+            'completed' => (int) $campaigns->sum('completed_count'),
+            'non_compliant' => (int) $campaigns->sum('non_compliant_count'),
+            'open_follow_ups' => $campaigns->flatMap->checkpoints->filter(fn ($cp) => $cp->isNonCompliant() && ! $cp->reviewed_at)->count(),
+        ];
+
+        // Days around the selected one that have checkpoints, for quick jumping.
+        $activeDays = CheckpointCampaign::query()
+            ->whereNotNull('starts_at')
+            ->when($siteId, fn ($q, $v) => $q->where('project_site_id', $v))
+            ->whereBetween('starts_at', [$date->copy()->subDays(14), $date->copy()->addDays(14)->endOfDay()])
+            ->get(['starts_at'])->map(fn ($c) => $c->starts_at->toDateString())->unique()->values();
+
+        return view('checkpoints.daily', compact('date', 'siteId', 'sites', 'campaigns', 'grid', 'totals', 'activeDays'));
     }
 
     public function create(CheckpointSettings $settings)
@@ -95,128 +142,163 @@ class CheckpointCampaignController extends Controller
         return view('checkpoints.create', $this->formData($settings) + ['campaign' => null]);
     }
 
-    public function store(Request $request, CheckpointScheduler $scheduler)
+    public function store(Request $request)
     {
-        [$attributes, $employees] = $this->validated($request, $scheduler);
+        [$attributes, $employees] = $this->validated($request);
         $campaign = $this->manager->create($attributes, $employees, $request->user());
 
         return redirect()->route('checkpoints.show', $campaign)
-            ->with('status', 'Campaign saved as a draft. Review the configuration below, then activate or schedule it.');
+            ->with('status', 'Checkpoint saved as a draft. Review the employees below, then activate it now or set a start time.');
     }
 
     public function edit(CheckpointCampaign $campaign, CheckpointSettings $settings)
     {
-        abort_unless($campaign->canEdit(), 422, 'Only draft or scheduled campaigns can be edited.');
+        abort_unless($campaign->isDraft(), 422, 'Only a draft checkpoint can be edited.');
         $campaign->load('employees:id');
 
         return view('checkpoints.create', $this->formData($settings) + ['campaign' => $campaign]);
     }
 
-    public function update(Request $request, CheckpointCampaign $campaign, CheckpointScheduler $scheduler)
+    public function update(Request $request, CheckpointCampaign $campaign)
     {
-        [$attributes, $employees] = $this->validated($request, $scheduler);
+        [$attributes, $employees] = $this->validated($request);
         $this->manager->update($campaign, $attributes, $employees, $request->user());
 
-        return redirect()->route('checkpoints.show', $campaign)->with('status', 'Campaign configuration updated.');
+        return redirect()->route('checkpoints.show', $campaign)->with('status', 'Checkpoint updated.');
     }
 
-    /** Campaign detail: configuration review, controls, per-day results, audit trail. */
-    public function show(Request $request, CheckpointCampaign $campaign)
+    /**
+     * Monitoring page: shared checkpoint info, live counters, and the two
+     * tables (completed / pending & non-compliant). Also the draft review page.
+     */
+    public function show(CheckpointCampaign $campaign)
     {
         $this->dispatcher->sweep();
+        $campaign->refresh()->load(['site', 'creator:id,name', 'activator:id,name', 'closer:id,name']);
 
-        $campaign->load(['site', 'creator:id,name', 'activator:id,name', 'closer:id,name', 'employees' => fn ($q) => $q->orderBy('first_name')]);
+        $employees = $campaign->employees()->with('activeAssignment.site:id,name')->orderBy('first_name')->orderBy('last_name')->get();
 
-        $counts = $campaign->checkpoints()
-            ->select('verification_status', DB::raw('count(*) as n'))
-            ->groupBy('verification_status')->pluck('n', 'verification_status');
+        $responses = $campaign->checkpoints()
+            ->with(['employee:id,first_name,last_name,employee_no', 'matchedSite:id,name', 'reviewer:id,name'])
+            ->get()
+            ->sortBy(fn ($cp) => $cp->employee?->full_name);
+        $responses->each->setRelation('campaign', $campaign);
 
-        $checkpoints = $campaign->checkpoints()
-            ->whereNotIn('verification_status', [Checkpoint::SCHEDULED]) // never expose upcoming times
-            ->with(['employee:id,first_name,last_name,employee_no', 'reviewer:id,name'])
-            ->latest('scheduled_at')->paginate(25)->withQueryString();
+        $completed = $responses->filter->isCompleted()->sortBy('submitted_at')->values();
+        $pending = $responses->reject->isCompleted()->values();
 
-        // How many secret checkpoints are still queued today (count only).
-        $upcomingToday = $campaign->checkpoints()->status(Checkpoint::SCHEDULED)
-            ->whereDate('scheduled_for', Carbon::today())->count();
+        $counts = [
+            'total' => $campaign->participants()->count(),
+            'completed' => $completed->count(),
+            'pending' => $responses->filter(fn ($cp) => in_array($cp->status, [Checkpoint::PENDING, Checkpoint::NOTIFIED], true))->count(),
+            'missed' => $responses->where('status', Checkpoint::MISSED)->count(),
+            'outside' => $responses->where('status', Checkpoint::OUTSIDE_GEOFENCE)->count(),
+            'review' => $responses->where('status', Checkpoint::PENDING_REVIEW)->count(),
+            'open_follow_ups' => $pending->filter(fn ($cp) => $cp->isNonCompliant() && ! $cp->reviewed_at)->count(),
+        ];
 
-        $audit = $campaign->auditLogs()->with('user:id,name')->take(30)->get();
+        $audit = $campaign->auditLogs()->with('user:id,name')->take(40)->get();
 
-        return view('checkpoints.show', compact('campaign', 'counts', 'checkpoints', 'upcomingToday', 'audit'));
+        return view('checkpoints.show', compact('campaign', 'employees', 'completed', 'pending', 'counts', 'audit'));
+    }
+
+    /** Lightweight JSON for the monitoring page's live counters / countdown. */
+    public function status(CheckpointCampaign $campaign)
+    {
+        $this->dispatcher->sweep();
+        $campaign->refresh();
+        $byStatus = $campaign->checkpoints()->select('status', DB::raw('count(*) as n'))->groupBy('status')->pluck('n', 'status');
+
+        return response()->json([
+            'status' => $campaign->status,
+            'server_now' => Carbon::now()->toIso8601String(),
+            'expires_at' => $campaign->expires_at?->toIso8601String(),
+            'completed' => (int) ($byStatus[Checkpoint::RESPONDED] ?? 0) + (int) ($byStatus[Checkpoint::APPROVED_EXCEPTION] ?? 0),
+            'total' => $campaign->participants()->count(),
+            'changed_at' => $campaign->checkpoints()->max('updated_at'),
+        ]);
     }
 
     public function activate(Request $request, CheckpointCampaign $campaign)
     {
-        $this->manager->activate($campaign, $request->user());
-        $campaign->refresh();
+        $campaign = $this->manager->activate($campaign, $request->user());
 
-        $msg = $campaign->status === CheckpointCampaign::ACTIVE
-            ? 'Campaign activated. Random checkpoints for today have been generated — employees will be notified as each one opens.'
-            : 'Campaign scheduled. It will start automatically on '.$campaign->start_date->format('M j, Y').'.';
+        return redirect()->route('checkpoints.show', $campaign)->with('status',
+            'Checkpoint activated. Start '.$campaign->starts_at->format('g:i A').' · deadline '.$campaign->expires_at->format('g:i A')
+            .' — the same for all '.$campaign->participants()->count().' employee(s). Notifications sent.');
+    }
 
-        return redirect()->route('checkpoints.show', $campaign)->with('status', $msg);
+    public function schedule(Request $request, CheckpointCampaign $campaign)
+    {
+        $data = $request->validate(['scheduled_start_at' => ['required', 'date']]);
+        $at = Carbon::parse($data['scheduled_start_at']);
+        $this->manager->schedule($campaign, $at, $request->user());
+
+        return back()->with('status', 'Checkpoint scheduled to start automatically at '.$at->format('M j, g:i A').'.');
     }
 
     public function pause(Request $request, CheckpointCampaign $campaign)
     {
         $this->manager->pause($campaign, $request->user(), $request->input('reason'));
 
-        return back()->with('status', 'Campaign paused. No new checkpoints will open until it is resumed.');
+        return back()->with('status', 'Checkpoint paused — the countdown is frozen and submissions are on hold.');
     }
 
     public function resume(Request $request, CheckpointCampaign $campaign)
     {
-        $this->manager->resume($campaign, $request->user());
+        $c = $this->manager->resume($campaign, $request->user());
 
-        return back()->with('status', 'Campaign resumed.');
+        return back()->with('status', 'Checkpoint resumed. New deadline for everyone: '.$c->expires_at->format('g:i A').'.');
     }
 
     public function end(Request $request, CheckpointCampaign $campaign)
     {
-        $this->manager->end($campaign, $request->user(), $request->input('reason'));
+        $this->manager->endNow($campaign, $request->user(), $this->dispatcher);
 
-        return back()->with('status', 'Campaign ended. Results and evidence are kept in the campaign history.');
+        return back()->with('status', 'Checkpoint window closed. Employees without a valid submission are now marked missed.');
     }
 
     public function cancel(Request $request, CheckpointCampaign $campaign)
     {
         $this->manager->cancel($campaign, $request->user(), $request->input('reason'));
 
-        return redirect()->route('checkpoints.index')->with('status', 'Campaign cancelled.');
+        return redirect()->route('checkpoints.index')->with('status', 'Checkpoint cancelled.');
     }
 
-    public function close(Request $request, CheckpointCampaign $campaign)
+    public function complete(Request $request, CheckpointCampaign $campaign)
     {
-        $this->manager->close($campaign, $request->user());
+        $this->manager->complete($campaign, $request->user());
 
-        return back()->with('status', 'Campaign closed.');
+        return back()->with('status', 'Checkpoint marked as completed.');
     }
 
-    /** CSV export of every checkpoint in the campaign (upcoming times excluded). */
-    public function export(Request $request, CheckpointCampaign $campaign): StreamedResponse
+    /** CSV export of every employee response in the checkpoint. */
+    public function export(Request $request, CheckpointCampaign $campaign, CheckpointAudit $audit): StreamedResponse
     {
-        app(CheckpointAudit::class)->campaign($campaign, 'exported', $request->user());
+        $audit->campaign($campaign, 'exported', $request->user());
 
-        $filename = 'checkpoints-'.$campaign->id.'-'.now()->format('Ymd_His').'.csv';
+        $filename = 'checkpoint-'.$campaign->id.'-'.now()->format('Ymd_His').'.csv';
         $rows = $campaign->checkpoints()
-            ->whereNotIn('verification_status', [Checkpoint::SCHEDULED])
             ->with(['employee:id,first_name,last_name,employee_no', 'site:id,name', 'matchedSite:id,name', 'reviewer:id,name'])
-            ->orderBy('scheduled_at');
+            ->orderBy('status');
 
         return response()->streamDownload(function () use ($rows, $campaign) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Checkpoint', 'Campaign', 'Employee No.', 'Employee', 'Project site', 'Scheduled', 'Opened', 'Expires', 'Submitted',
-                'Status', 'Result', 'Latitude', 'Longitude', 'GPS accuracy (m)', 'Distance (m)', 'Within geofence', 'Matched site',
-                'Network', 'Employee explanation', 'Review status', 'Review result', 'Review remarks', 'Reviewed by', 'Reviewed at']);
+            fputcsv($out, ['Reference', 'Checkpoint', 'Project site', 'Start', 'Deadline', 'Employee No.', 'Employee', 'Status', 'Verification',
+                'Notified', 'Seen', 'Attempts', 'Last attempt', 'Last attempt result', 'Submitted (server)', 'Response (s)', 'Latitude', 'Longitude',
+                'GPS accuracy (m)', 'Distance (m)', 'Within geofence', 'Matched site', 'Network', 'Issue reported', 'Employee explanation',
+                'HR reason', 'HR note', 'Escalated', 'Reviewed by', 'Reviewed at']);
             $rows->chunk(200, function ($chunk) use ($out, $campaign) {
                 foreach ($chunk as $cp) {
+                    $cp->setRelation('campaign', $campaign);
                     fputcsv($out, [
-                        $cp->reference(), $campaign->name, $cp->employee?->employee_no, $cp->employee?->full_name, $cp->site?->name,
-                        $cp->scheduled_at?->toDateTimeString(), $cp->opened_at?->toDateTimeString(), $cp->expires_at?->toDateTimeString(), $cp->submitted_at?->toDateTimeString(),
-                        $cp->status_label, $cp->result_label, $cp->latitude, $cp->longitude, $cp->gps_accuracy_meters, $cp->distance_from_site_meters,
-                        $cp->within_geofence === null ? '' : ($cp->within_geofence ? 'yes' : 'no'), $cp->matchedSite?->name,
-                        $cp->network_status, $cp->employee_explanation, $cp->review_status, $cp->review_result_label, $cp->review_remarks,
-                        $cp->reviewer?->name, $cp->reviewed_at?->toDateTimeString(),
+                        $cp->reference(), $campaign->name, $cp->site?->name, $campaign->starts_at?->toDateTimeString(), $campaign->expires_at?->toDateTimeString(),
+                        $cp->employee?->employee_no, $cp->employee?->full_name, $cp->status_label, $cp->verification_label,
+                        $cp->notified_at?->toDateTimeString(), $cp->seen_at?->toDateTimeString(), $cp->submission_attempts, $cp->last_attempt_at?->toDateTimeString(),
+                        $cp->last_attempt_result, $cp->submitted_at?->toDateTimeString(), $cp->responseSeconds(), $cp->latitude, $cp->longitude,
+                        $cp->gps_accuracy_meters, $cp->distance_from_site_meters, $cp->within_geofence === null ? '' : ($cp->within_geofence ? 'yes' : 'no'),
+                        $cp->matchedSite?->name, $cp->network_status, $cp->issue_reported, $cp->employee_explanation, $cp->hr_reason_label, $cp->hr_note,
+                        $cp->escalated_at?->toDateTimeString(), $cp->reviewer?->name, $cp->reviewed_at?->toDateTimeString(),
                     ]);
                 }
             });
@@ -233,53 +315,28 @@ class CheckpointCampaignController extends Controller
             'employees' => Employee::query()->where('status', 'active')->with('activeAssignment.site:id,name')
                 ->orderBy('first_name')->orderBy('last_name')->get(['id', 'first_name', 'last_name', 'employee_no', 'employee_type']),
             'defaults' => $settings->defaults(),
-            'instructionLibrary' => $settings->photoInstructions(),
+            'instructionLibrary' => $settings->instructions(),
         ];
     }
 
     /** @return array{0: array, 1: array<int>} */
-    private function validated(Request $request, CheckpointScheduler $scheduler): array
+    private function validated(Request $request): array
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
             'project_site_id' => ['required', 'exists:sites,id'],
-            'reason' => ['required', 'string', 'max:1000'],
+            'instruction' => ['required', 'string', 'max:200'],
+            'reason' => ['nullable', 'string', 'max:1000'],
             'employees' => ['required', 'array', 'min:1'],
             'employees.*' => ['integer', 'exists:employees,id'],
-            'start_date' => ['required', 'date'],
-            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'working_start_time' => ['required', 'date_format:H:i'],
-            'working_end_time' => ['required', 'date_format:H:i', 'after:working_start_time'],
-            'include_weekends' => ['sometimes', 'boolean'],
-            'checkpoints_per_day' => ['required', 'integer', 'between:1,12'],
-            'minimum_interval_minutes' => ['required', 'integer', 'between:5,720'],
-            'maximum_interval_minutes' => ['required', 'integer', 'between:5,720', 'gte:minimum_interval_minutes'],
-            'response_window_minutes' => ['required', 'integer', 'between:3,60'],
-            'photo_instructions' => ['required', 'array', 'min:1'],
-            'photo_instructions.*' => ['string', 'max:150'],
+            'response_window_minutes' => ['required', 'integer', 'between:3,120'],
         ], [
-            'employees.required' => 'Select at least one employee to cover.',
-            'photo_instructions.required' => 'Pick at least one photo instruction.',
-            'working_end_time.after' => 'Working hours must end after they start.',
-            'maximum_interval_minutes.gte' => 'Maximum interval must be at least the minimum interval.',
+            'employees.required' => 'Select at least one employee to include.',
+            'instruction.required' => 'Enter the checkpoint instruction employees must follow.',
         ]);
-
-        $windowMinutes = (int) Carbon::parse($data['working_start_time'])->diffInMinutes(Carbon::parse($data['working_end_time']));
-        $problem = $scheduler->validate(
-            $windowMinutes,
-            (int) $data['checkpoints_per_day'],
-            (int) $data['minimum_interval_minutes'],
-            (int) $data['maximum_interval_minutes'],
-            (int) $data['response_window_minutes'],
-        );
-        if ($problem) {
-            throw ValidationException::withMessages(['checkpoints_per_day' => $problem]);
-        }
 
         $employees = array_map('intval', $data['employees']);
         unset($data['employees']);
-        $data['include_weekends'] = (bool) ($data['include_weekends'] ?? false);
-        $data['photo_instructions'] = array_values(array_unique(array_filter(array_map('trim', $data['photo_instructions']))));
 
         return [$data, $employees];
     }

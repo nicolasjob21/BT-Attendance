@@ -6,72 +6,106 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Carbon;
 
 /**
- * One random presence check for one employee. The scheduled time is secret
- * until the checkpoint opens; the evidence captured on submission is frozen.
+ * One employee's response to a shared checkpoint campaign. The campaign
+ * owns the official start/deadline; this row owns the evidence and status.
  */
 class Checkpoint extends Model
 {
-    public const SCHEDULED = 'scheduled';
+    // Response statuses
+    public const PENDING = 'pending';
 
-    public const OPEN = 'open';
+    public const NOTIFIED = 'notified';
 
-    public const SUBMITTED = 'submitted';
-
-    public const VERIFIED = 'verified';
-
-    public const FAILED = 'failed';
+    public const RESPONDED = 'responded';
 
     public const MISSED = 'missed';
 
-    public const EXPIRED = 'expired';
+    public const OUTSIDE_GEOFENCE = 'outside_geofence';
+
+    public const GPS_UNAVAILABLE = 'gps_unavailable';
+
+    public const CAMERA_PERMISSION_DENIED = 'camera_permission_denied';
+
+    public const SUBMISSION_FAILED = 'submission_failed';
 
     public const PENDING_REVIEW = 'pending_review';
 
-    public const CANCELLED = 'cancelled';
+    public const APPROVED_EXCEPTION = 'approved_exception';
+
+    public const REJECTED_EXCEPTION = 'rejected_exception';
 
     public const STATUSES = [
-        self::SCHEDULED => 'Scheduled',
-        self::OPEN => 'Open',
-        self::SUBMITTED => 'Submitted',
-        self::VERIFIED => 'Verified',
-        self::FAILED => 'Failed',
+        self::PENDING => 'Pending',
+        self::NOTIFIED => 'Notified – not responded',
+        self::RESPONDED => 'Completed',
         self::MISSED => 'Missed',
-        self::EXPIRED => 'Expired',
-        self::PENDING_REVIEW => 'Pending review',
-        self::CANCELLED => 'Cancelled',
+        self::OUTSIDE_GEOFENCE => 'Outside geofence',
+        self::GPS_UNAVAILABLE => 'GPS unavailable',
+        self::CAMERA_PERMISSION_DENIED => 'Camera permission denied',
+        self::SUBMISSION_FAILED => 'Submission failed',
+        self::PENDING_REVIEW => 'Pending HR review',
+        self::APPROVED_EXCEPTION => 'Approved exception',
+        self::REJECTED_EXCEPTION => 'Rejected exception',
     ];
 
-    /** Statuses that raise an attendance exception for HR review. */
-    public const EXCEPTION_STATUSES = [self::FAILED, self::MISSED, self::EXPIRED, self::PENDING_REVIEW];
+    /** Statuses that count as a valid, completed checkpoint. */
+    public const COMPLETED_STATUSES = [self::RESPONDED, self::APPROVED_EXCEPTION];
 
-    /** Backend validation outcomes (stored in failure_reason; null = verified). */
+    /** Statuses still waiting on the employee while the window is open. */
+    public const WAITING_STATUSES = [self::PENDING, self::NOTIFIED, self::OUTSIDE_GEOFENCE, self::GPS_UNAVAILABLE, self::CAMERA_PERMISSION_DENIED, self::SUBMISSION_FAILED];
+
+    /** Non-compliant statuses HR follows up on. */
+    public const NON_COMPLIANT_STATUSES = [self::MISSED, self::OUTSIDE_GEOFENCE, self::GPS_UNAVAILABLE, self::CAMERA_PERMISSION_DENIED, self::SUBMISSION_FAILED, self::PENDING_REVIEW, self::REJECTED_EXCEPTION];
+
+    // Verification results for completed responses
+    public const COMPLETED = 'completed';
+
+    public const COMPLETED_LOW_ACCURACY = 'completed_with_low_gps_accuracy';
+
+    public const COMPLETED_AFTER_REVIEW = 'completed_after_review';
+
+    public const VERIFICATION_RESULTS = [
+        self::COMPLETED => 'Completed',
+        self::COMPLETED_LOW_ACCURACY => 'Completed with low GPS accuracy',
+        self::COMPLETED_AFTER_REVIEW => 'Completed after review',
+    ];
+
+    /** Backend validation outcome codes (failure_reason / last_attempt_result). */
     public const RESULTS = [
         'verified_presence' => 'Verified presence',
-        'outside_geofence' => 'Outside geofence',
-        'gps_unavailable' => 'GPS unavailable',
         'low_gps_accuracy' => 'Low GPS accuracy',
+        'outside_geofence' => 'Outside geofence',
+        'alternate_location' => 'At another authorized location',
+        'gps_unavailable' => 'GPS unavailable',
         'photo_missing' => 'Photo missing',
         'checkpoint_expired' => 'Checkpoint expired',
-        'duplicate_submission' => 'Duplicate submission',
+        'checkpoint_paused' => 'Checkpoint paused',
+        'duplicate_submission' => 'Already completed',
         'unauthorized_employee' => 'Unauthorized employee',
-        'pending_review' => 'Pending review',
         'no_response' => 'No response',
-        'campaign_paused' => 'Campaign paused',
-        'campaign_ended' => 'Campaign ended',
     ];
 
-    public const REVIEW_RESULTS = [
-        'valid_reason' => 'Valid reason',
-        'approved_official_errand' => 'Approved official errand',
-        'gps_issue' => 'GPS issue',
-        'device_or_network_issue' => 'Device or network issue',
-        'unauthorized_site_exit' => 'Unauthorized site exit',
-        'insufficient_evidence' => 'Insufficient evidence',
-        'confirmed_attendance' => 'Confirmed attendance',
-        'requires_further_investigation' => 'Requires further investigation',
+    /** Problems an employee can report from the checkpoint page. */
+    public const ISSUES = [
+        'camera_denied' => 'Camera permission denied',
+        'gps_unavailable' => 'GPS unavailable',
+        'no_internet' => 'No internet connection',
+        'device_problem' => 'Device problem',
+    ];
+
+    /** Reasons HR can record during follow-up. */
+    public const HR_REASONS = [
+        'no_internet' => 'No internet connection',
+        'device_problem' => 'Device problem',
+        'gps_problem' => 'GPS problem',
+        'camera_permission' => 'Camera permission problem',
+        'work_related' => 'Work-related reason',
+        'temporarily_away' => 'Employee was temporarily away from the site',
+        'forgot' => 'Employee forgot to complete the checkpoint',
+        'ignored' => 'Employee ignored the checkpoint',
+        'other' => 'Other reason',
     ];
 
     protected $guarded = [];
@@ -79,13 +113,13 @@ class Checkpoint extends Model
     protected function casts(): array
     {
         return [
-            'scheduled_for' => 'date',
-            'scheduled_at' => 'datetime',
-            'opened_at' => 'datetime',
-            'expires_at' => 'datetime',
+            'notified_at' => 'datetime',
+            'seen_at' => 'datetime',
+            'last_attempt_at' => 'datetime',
             'submitted_at' => 'datetime',
             'server_timestamp' => 'datetime',
             'client_timestamp' => 'datetime',
+            'escalated_at' => 'datetime',
             'reviewed_at' => 'datetime',
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
@@ -112,7 +146,6 @@ class Checkpoint extends Model
         return $this->belongsTo(Site::class, 'project_site_id');
     }
 
-    /** Authorized location the fix actually landed in (may differ from the campaign site). */
     public function matchedSite(): BelongsTo
     {
         return $this->belongsTo(Site::class, 'matched_site_id');
@@ -121,6 +154,11 @@ class Checkpoint extends Model
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(CheckpointReview::class)->latest('created_at')->latest('id');
     }
 
     public function auditLogs(): HasMany
@@ -132,18 +170,22 @@ class Checkpoint extends Model
 
     public function scopeStatus(Builder $q, string|array $status): Builder
     {
-        return $q->whereIn('verification_status', (array) $status);
+        return $q->whereIn('status', (array) $status);
     }
 
-    /** Checkpoints HR still has to look at. */
-    public function scopePendingReview(Builder $q): Builder
+    public function scopeCompleted(Builder $q): Builder
     {
-        return $q->where('review_status', 'pending');
+        return $q->whereIn('status', self::COMPLETED_STATUSES);
     }
 
-    public function scopeExceptions(Builder $q): Builder
+    public function scopeNonCompliant(Builder $q): Builder
     {
-        return $q->whereIn('verification_status', self::EXCEPTION_STATUSES);
+        return $q->whereIn('status', self::NON_COMPLIANT_STATUSES);
+    }
+
+    public function scopeNeedsReview(Builder $q): Builder
+    {
+        return $q->where('status', self::PENDING_REVIEW);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────
@@ -153,47 +195,76 @@ class Checkpoint extends Model
         return 'CP-'.str_pad((string) $this->id, 6, '0', STR_PAD_LEFT);
     }
 
-    public function isOpen(): bool
+    public function isCompleted(): bool
     {
-        return $this->verification_status === self::OPEN;
+        return in_array($this->status, self::COMPLETED_STATUSES, true);
     }
 
-    public function isExpired(?Carbon $now = null): bool
+    public function isWaiting(): bool
     {
-        return $this->expires_at !== null && ($now ?? Carbon::now())->gt($this->expires_at);
+        return in_array($this->status, self::WAITING_STATUSES, true);
     }
 
-    public function isException(): bool
+    public function isNonCompliant(): bool
     {
-        return in_array($this->verification_status, self::EXCEPTION_STATUSES, true);
+        return in_array($this->status, self::NON_COMPLIANT_STATUSES, true);
     }
 
-    public function needsReview(): bool
+    /** Whether HR can still act on this response (anything not a clean completion). */
+    public function isReviewable(): bool
     {
-        return $this->review_status === 'pending';
+        return $this->status !== self::RESPONDED;
     }
 
     public function hasSubmission(): bool
     {
-        return $this->submitted_at !== null;
+        return $this->submitted_at !== null || $this->last_attempt_at !== null;
+    }
+
+    /** Seconds between the shared start and the accepted submission. */
+    public function responseSeconds(): ?int
+    {
+        if (! $this->submitted_at || ! $this->campaign?->starts_at) {
+            return null;
+        }
+
+        return (int) $this->campaign->starts_at->diffInSeconds($this->submitted_at);
     }
 
     public function getStatusLabelAttribute(): string
     {
-        return self::STATUSES[$this->verification_status] ?? ucfirst(str_replace('_', ' ', $this->verification_status));
+        // Employees who reported "no internet" surface as such in the table.
+        if ($this->issue_reported === 'no_internet' && in_array($this->status, [self::MISSED, self::PENDING, self::NOTIFIED], true)) {
+            return 'No internet reported';
+        }
+
+        return self::STATUSES[$this->status] ?? ucfirst(str_replace('_', ' ', $this->status));
+    }
+
+    public function getVerificationLabelAttribute(): ?string
+    {
+        return $this->verification_result ? (self::VERIFICATION_RESULTS[$this->verification_result] ?? $this->verification_result) : null;
     }
 
     public function getResultLabelAttribute(): ?string
     {
-        if ($this->verification_status === self::VERIFIED) {
-            return self::RESULTS['verified_presence'];
-        }
-
         return $this->failure_reason ? (self::RESULTS[$this->failure_reason] ?? ucfirst(str_replace('_', ' ', $this->failure_reason))) : null;
     }
 
-    public function getReviewResultLabelAttribute(): ?string
+    public function getHrReasonLabelAttribute(): ?string
     {
-        return $this->review_result ? (self::REVIEW_RESULTS[$this->review_result] ?? ucfirst(str_replace('_', ' ', $this->review_result))) : null;
+        return $this->hr_reason ? (self::HR_REASONS[$this->hr_reason] ?? $this->hr_reason) : null;
+    }
+
+    public function getNotificationStatusAttribute(): string
+    {
+        if ($this->seen_at) {
+            return 'Seen '.$this->seen_at->format('g:i A');
+        }
+        if ($this->notified_at) {
+            return 'Sent '.$this->notified_at->format('g:i A');
+        }
+
+        return 'Not sent';
     }
 }

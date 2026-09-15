@@ -1,4 +1,4 @@
-@php $cp = $checkpoint; @endphp
+@php $cp = $checkpoint; $c = $campaign; @endphp
 <x-app-layout>
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Presence Checkpoint</h1>
@@ -28,6 +28,7 @@
                 <div class="max-w-xs space-y-3">
                     <p class="text-sm text-white/80" x-text="cameraError"></p>
                     <button type="button" @click="startCamera()" class="rounded-full border border-white/30 px-4 py-1.5 text-sm font-semibold hover:bg-white/10">Retry camera</button>
+                    <button type="button" @click="reportIssue('camera_denied')" class="block w-full rounded-full border border-amber-300/60 px-4 py-1.5 text-sm font-semibold text-amber-200 hover:bg-white/10">Report: camera blocked</button>
                 </div>
             </div>
 
@@ -70,11 +71,12 @@
             <div class="relative z-20 space-y-2 px-4 pb-2" style="text-shadow: 0 1px 3px rgba(0,0,0,.8)">
                 <div class="rounded-lg bg-accent-500/95 px-3 py-2 shadow-lg" style="text-shadow:none">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-white/80">Photo instruction</p>
-                    <p class="font-display text-base font-bold leading-tight text-white">{{ $cp->photo_instruction }}</p>
+                    <p class="font-display text-base font-bold leading-tight text-white">{{ $c->instruction }}</p>
                 </div>
                 <div class="border-l-[3px] border-brand-300 pl-2 text-xs leading-snug">
                     <p class="font-semibold">{{ $employeeName }} · {{ $site['name'] }}</p>
                     <p class="text-white/90"><span x-text="clockDate"></span> · <span x-text="clockTime"></span> · {{ $cp->reference() }}</p>
+                    <p class="text-[10px] text-white/70">Window {{ $c->starts_at->format('g:i A') }} – {{ $c->expires_at->format('g:i A') }} (same for everyone)</p>
                     <p class="text-[10px] text-white/60" x-show="lat"><span x-text="lat"></span>, <span x-text="lng"></span><span x-show="accuracy !== ''"> · ±<span x-text="accuracy"></span> m</span></p>
                     <p class="mt-0.5 flex items-center gap-1 text-[11px] font-medium" :class="textColor()">
                         <svg class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>
@@ -85,9 +87,16 @@
                 <div x-show="isException()" x-cloak class="rounded-lg bg-slate-900/90 p-2.5 text-[11px] text-white shadow-xl ring-1 ring-accent-400/70 backdrop-blur">
                     <p class="text-xs font-semibold text-accent-300" x-text="exceptionTitle()"></p>
                     <p class="text-white/80">You can still submit — HR will review it. Try “Retry GPS” first for a better fix.</p>
-                    <button type="button" @click="getLocation()" class="mt-1.5 rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Retry GPS</button>
+                    <div class="mt-1.5 flex flex-wrap gap-2">
+                        <button type="button" @click="getLocation()" class="rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Retry GPS</button>
+                        <button type="button" x-show="locStatus === 'gps_unavailable'" @click="reportIssue('gps_unavailable')" class="rounded-full border border-amber-300/60 px-3 py-1 font-semibold text-amber-200 hover:bg-white/10">Report: no GPS</button>
+                    </div>
                 </div>
 
+                @if($paused)
+                    <p class="rounded-lg bg-amber-500/90 px-3 py-2 text-xs font-semibold text-black">HR has paused this checkpoint. The countdown is frozen — wait for it to resume.</p>
+                @endif
+                @error('attempt') <p class="rounded-lg bg-amber-500/90 px-3 py-2 text-xs font-semibold text-black">{{ $message }} You can retry while the checkpoint is open.</p> @enderror
                 @error('photo') <p class="rounded-lg bg-rose-600/90 px-3 py-2 text-xs font-medium">{{ $message }}</p> @enderror
                 @error('checkpoint') <p class="rounded-lg bg-rose-600/90 px-3 py-2 text-xs font-medium">{{ $message }}</p> @enderror
                 @error('latitude') <p class="rounded-lg bg-rose-600/90 px-3 py-2 text-xs font-medium">{{ $message }}</p> @enderror
@@ -143,7 +152,8 @@
                 // Server-authoritative countdown: offset = server now − device now.
                 expiresAt: new Date(@json($expiresAt)).getTime(),
                 offset: new Date(@json($serverNow)).getTime() - Date.now(),
-                secondsLeft: 0, expired: false,
+                secondsLeft: 0, expired: false, paused: @json($paused),
+                issueUrl: @json(route('my-checkpoints.issue', $cp)), csrf: document.querySelector('meta[name=csrf-token]').content,
 
                 lat: '', lng: '', accuracy: '', photo: '', clientTs: '',
                 stream: null, cameraError: '', facing: 'environment', submitting: false, mapExpanded: false, fit: 'object-contain',
@@ -158,17 +168,19 @@
                     this.startCamera();
                     window.addEventListener('online', () => { this.online = true; if (this.pendingSubmit && this.canSubmit()) { this.submitting = true; this.$refs.form.submit(); } });
                     window.addEventListener('offline', () => { this.online = false; this.wasOffline = true; });
+                    if (this.paused) setInterval(() => location.reload(), 15000);
                 },
 
                 tick() {
+                    if (this.paused) return;
                     const now = Date.now() + this.offset;
                     this.secondsLeft = Math.max(0, Math.floor((this.expiresAt - now) / 1000));
-                    if (this.secondsLeft === 0) this.expired = true;
+                    if (this.secondsLeft === 0 && !this.expired) { this.expired = true; setTimeout(() => location.reload(), 3000); }
                     const d = new Date(now);
                     this.clockDate = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Manila' });
                     this.clockTime = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
                 },
-                countdown() { return Math.floor(this.secondsLeft / 60) + ':' + String(this.secondsLeft % 60).padStart(2, '0'); },
+                countdown() { return this.paused ? 'PAUSED' : Math.floor(this.secondsLeft / 60) + ':' + String(this.secondsLeft % 60).padStart(2, '0'); },
 
                 initMap() {
                     const s = this.site;
@@ -240,8 +252,9 @@
                 },
                 submitHint() {
                     if (this.expired) return 'Checkpoint expired.';
+                    if (this.paused) return 'Paused by HR.';
                     if (this.submitting) return 'Submitting…';
-                    if (!this.photo) return this.cameraError ? 'Camera unavailable.' : 'Photograph: ' + @json($cp->photo_instruction);
+                    if (!this.photo) return this.cameraError ? 'Camera unavailable.' : 'Photograph: ' + @json($c->instruction);
                     if (!this.online) return 'Offline — will submit when back online.';
                     if (this.locStatus === 'checking') return 'Waiting for your location…';
                     return this.isException() ? 'Will be flagged for HR review — tap to submit.' : 'Looks good — tap to submit.';
@@ -279,8 +292,15 @@
                     if (!this.online) this.pendingSubmit = true;
                 },
                 retake() { this.photo = ''; this.clientTs = ''; this.pendingSubmit = false; this.startCamera(); },
+                // Tell HR about a device problem without leaving the page.
+                async reportIssue(issue) {
+                    try {
+                        await fetch(this.issueUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf }, body: JSON.stringify({ issue }) });
+                        this.geoError = 'Reported to HR. Keep trying if you can.';
+                    } catch (e) { this.geoError = 'Could not send the report (offline?).'; }
+                },
                 canSubmit() {
-                    if (!this.photo || this.expired || !this.online) return false;
+                    if (!this.photo || this.expired || this.paused || !this.online) return false;
                     if (this.locStatus === 'checking') return false;
                     return true; // exceptions are allowed through and flagged server-side
                 },

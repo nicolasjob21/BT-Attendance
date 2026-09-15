@@ -16,9 +16,11 @@ use Illuminate\Validation\ValidationException;
  * Server-side validation of a checkpoint submission.
  *
  * Nothing the client computed is trusted: the server clock is the official
- * time, the coordinates are re-checked against every active attendance
- * location with GeofenceService, and the row is locked so a double-tap or a
- * replay cannot submit twice.
+ * time, the window is the campaign's shared start/deadline, the coordinates
+ * are re-checked against every active attendance location, and the row is
+ * locked so a double-tap cannot submit twice. A failed attempt (outside the
+ * fence, no GPS) may be retried while the window is open — only a
+ * successful response closes the checkpoint for that employee.
  */
 class CheckpointVerifier
 {
@@ -26,7 +28,6 @@ class CheckpointVerifier
         private GeofenceService $geofence,
         private CheckpointPhoto $photos,
         private CheckpointAudit $audit,
-        private CheckpointDispatcher $dispatcher,
     ) {}
 
     /**
@@ -38,48 +39,51 @@ class CheckpointVerifier
     {
         $now ??= Carbon::now();
 
-        // Photo must be a decodable live capture before we touch the row.
         if (! isset($input['photo']) || DataUrlPhoto::decode((string) $input['photo']) === null) {
             throw ValidationException::withMessages(['photo' => Checkpoint::RESULTS['photo_missing'].' — take a live photo before submitting.']);
+        }
+
+        // Pre-checks run outside the transaction so a refusal (and its audit
+        // entry / attempt record) is persisted even though we throw.
+        $cp = $checkpoint->fresh(['campaign', 'site']);
+        $campaign = $cp->campaign;
+
+        $participant = $cp->employee_id === $employee->id
+            && $campaign->participants()->where('employee_id', $employee->id)->exists();
+        if (! $participant) {
+            $this->audit->checkpoint($cp, 'rejected_submission', $employee->user, ['reason' => 'unauthorized_employee']);
+            throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['unauthorized_employee'].'.']);
+        }
+
+        if ($cp->isCompleted()) {
+            $this->audit->checkpoint($cp, 'rejected_submission', $employee->user, ['reason' => 'duplicate_submission']);
+            throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['duplicate_submission'].' — you have already completed this checkpoint.']);
+        }
+
+        if ($campaign->status === CheckpointCampaign::PAUSED) {
+            throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['checkpoint_paused'].' — HR has paused this checkpoint; wait for it to resume.']);
+        }
+
+        // Official window check on the SERVER clock.
+        if (! $campaign->acceptsSubmissions($now)) {
+            $cp->update([
+                'submission_attempts' => $cp->submission_attempts + 1,
+                'last_attempt_at' => $now,
+                'last_attempt_result' => 'checkpoint_expired',
+                'client_timestamp' => $this->clientTime($input['client_timestamp'] ?? null),
+                'network_status' => $input['network_status'] ?? null,
+            ]);
+            $this->audit->checkpoint($cp, 'late_submission', $employee->user, ['at' => $now->toDateTimeString()]);
+            throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['checkpoint_expired'].' — the deadline was '.$campaign->expires_at?->format('g:i A').'. You can add an explanation for HR.']);
         }
 
         return DB::transaction(function () use ($checkpoint, $employee, $input, $now) {
             /** @var Checkpoint $cp */
             $cp = Checkpoint::whereKey($checkpoint->id)->lockForUpdate()->with(['campaign', 'site'])->firstOrFail();
 
-            // Unauthorized: not the employee's own checkpoint, or no longer a participant.
-            $participant = $cp->employee_id === $employee->id
-                && $cp->campaign->participants()->where('employee_id', $employee->id)->exists();
-            if (! $participant) {
-                $this->audit->checkpoint($cp, 'rejected_submission', $employee->user, ['reason' => 'unauthorized_employee']);
-                throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['unauthorized_employee'].'.']);
-            }
-
-            if ($cp->campaign->status !== CheckpointCampaign::ACTIVE) {
-                throw ValidationException::withMessages(['checkpoint' => 'This checkpoint campaign is no longer active.']);
-            }
-
-            if (in_array($cp->verification_status, [Checkpoint::VERIFIED, Checkpoint::FAILED, Checkpoint::PENDING_REVIEW, Checkpoint::SUBMITTED], true)) {
-                $this->audit->checkpoint($cp, 'rejected_submission', $employee->user, ['reason' => 'duplicate_submission']);
-                throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['duplicate_submission'].' — this checkpoint was already submitted.']);
-            }
-
-            if ($cp->verification_status !== Checkpoint::OPEN || $cp->isExpired($now)) {
-                if ($cp->verification_status === Checkpoint::OPEN) {
-                    // The sweep has not run yet: record the late attempt as expired.
-                    $cp->update([
-                        'verification_status' => Checkpoint::EXPIRED,
-                        'failure_reason' => 'checkpoint_expired',
-                        'validation_message' => 'A submission arrived at '.$now->format('g:i:s A').', after the checkpoint expired at '.$cp->expires_at?->format('g:i A').'.',
-                        'review_status' => 'pending',
-                        'server_timestamp' => $now,
-                        'client_timestamp' => $this->clientTime($input['client_timestamp'] ?? null),
-                        'network_status' => $input['network_status'] ?? null,
-                    ]);
-                    $this->audit->checkpoint($cp, 'late_submission', $employee->user);
-                    $this->dispatcher->notifyReviewers($cp);
-                }
-                throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['checkpoint_expired'].' — the response window has closed. You may add an explanation for HR.']);
+            // Re-check under the lock: a concurrent request may have completed it.
+            if ($cp->isCompleted()) {
+                throw ValidationException::withMessages(['checkpoint' => Checkpoint::RESULTS['duplicate_submission'].'.']);
             }
 
             $lat = $input['latitude'] ?? null;
@@ -93,11 +97,17 @@ class CheckpointVerifier
                 throw ValidationException::withMessages(['photo' => Checkpoint::RESULTS['photo_missing'].'.']);
             }
 
+            $accepted = $outcome['status'] === Checkpoint::RESPONDED;
+
             $cp->update([
-                'verification_status' => $outcome['status'],
-                'failure_reason' => $outcome['reason'],
+                'status' => $outcome['status'],
+                'verification_result' => $accepted ? $outcome['verification'] : null,
+                'failure_reason' => $accepted ? null : $outcome['reason'],
                 'validation_message' => $outcome['message'],
-                'submitted_at' => $now,
+                'submission_attempts' => $cp->submission_attempts + 1,
+                'last_attempt_at' => $now,
+                'last_attempt_result' => $outcome['reason'] ?? 'verified_presence',
+                'submitted_at' => $accepted ? $now : null,
                 'server_timestamp' => $now,
                 'client_timestamp' => $this->clientTime($input['client_timestamp'] ?? null),
                 'network_status' => $input['network_status'] ?? 'online',
@@ -108,28 +118,24 @@ class CheckpointVerifier
                 'matched_site_id' => $outcome['matched_site_id'],
                 'within_geofence' => $outcome['within'],
                 'photo_path' => $photoPath,
-                'review_status' => $outcome['status'] === Checkpoint::VERIFIED ? null : 'pending',
+                'issue_reported' => $accepted ? null : $cp->issue_reported,
             ]);
 
-            $this->audit->checkpoint($cp, 'submitted', $employee->user, [
+            $this->audit->checkpoint($cp, $accepted ? 'submitted' : 'attempt_failed', $employee->user, [
                 'result' => $outcome['reason'] ?? 'verified_presence',
                 'distance_m' => $outcome['distance'],
+                'attempt' => $cp->submission_attempts,
             ]);
-
-            if ($cp->isException()) {
-                $this->dispatcher->notifyReviewers($cp);
-            }
 
             return $cp;
         });
     }
 
     /**
-     * Decide the checkpoint outcome from the fix. Uses the same policy as
-     * attendance (every active site counts as authorized), then requires the
-     * fix to be inside THIS campaign's project site for a clean "verified".
+     * Decide the outcome from the fix. Same policy as attendance (every active
+     * site is authorized), then requires the fix inside THIS campaign's site.
      *
-     * @return array{status:string, reason:?string, message:string, distance:?float, within:?bool, matched_site_id:?int, gps_label:string}
+     * @return array{status:string, verification:?string, reason:?string, message:string, distance:?float, within:?bool, matched_site_id:?int, gps_label:string}
      */
     public function evaluate(Checkpoint $cp, Employee $employee, ?float $lat, ?float $lng, ?float $acc, Carbon $now): array
     {
@@ -140,54 +146,61 @@ class CheckpointVerifier
 
         if ($lat === null || $lng === null) {
             return [
-                'status' => Checkpoint::PENDING_REVIEW, 'reason' => 'gps_unavailable',
-                'message' => 'Location was not available on the device, so presence at '.($site?->name ?? 'the site').' could not be verified.',
+                'status' => Checkpoint::GPS_UNAVAILABLE, 'verification' => null, 'reason' => 'gps_unavailable',
+                'message' => 'Location was not available on the device, so presence at '.($site?->name ?? 'the site').' could not be verified. You may retry while the checkpoint is open.',
                 'distance' => null, 'within' => null, 'matched_site_id' => null, 'gps_label' => 'Unavailable',
             ];
         }
 
         $sites = Site::query()->activeOn($now)->get();
         if ($site && ! $sites->contains('id', $site->id)) {
-            $sites->push($site); // the campaign site is authoritative even if its window lapsed
+            $sites->push($site);
         }
         $result = $this->geofence->evaluate($employee, $lat, $lng, $acc, $sites, $now);
         $withinCampaignSite = $site && $campaignDistance !== null && $campaignDistance <= (float) $site->geofence_radius_m;
+        $dist = number_format((float) $campaignDistance);
 
-        if ($result->status === GeofenceService::LOW_ACCURACY) {
+        if ($withinCampaignSite) {
+            if ($result->status === GeofenceService::LOW_ACCURACY) {
+                return [
+                    'status' => Checkpoint::RESPONDED, 'verification' => Checkpoint::COMPLETED_LOW_ACCURACY, 'reason' => 'low_gps_accuracy',
+                    'message' => "Completed inside the {$site->name} geofence ({$dist} m from centre), but GPS accuracy was ±".number_format((float) $acc).' m.',
+                    'distance' => $campaignDistance, 'within' => true, 'matched_site_id' => $site->id,
+                    'gps_label' => 'Low accuracy ±'.number_format((float) $acc).' m',
+                ];
+            }
+
             return [
-                'status' => Checkpoint::PENDING_REVIEW, 'reason' => 'low_gps_accuracy',
-                'message' => 'GPS accuracy was ±'.number_format((float) $acc).' m — too weak to confirm presence'
-                    .($withinCampaignSite ? ' (fix landed inside '.$site->name.').' : ' ('.number_format((float) $campaignDistance).' m from '.$site?->name.').'),
-                'distance' => $campaignDistance, 'within' => $withinCampaignSite,
-                'matched_site_id' => $result->site?->id, 'gps_label' => 'Low accuracy ±'.number_format((float) $acc).' m',
+                'status' => Checkpoint::RESPONDED, 'verification' => Checkpoint::COMPLETED, 'reason' => null,
+                'message' => "Verified presence — inside the {$site->name} geofence ({$dist} m from centre).",
+                'distance' => $campaignDistance, 'within' => true, 'matched_site_id' => $site->id,
+                'gps_label' => "Verified · {$dist} m",
             ];
         }
 
-        if ($withinCampaignSite) {
+        if ($result->status === GeofenceService::LOW_ACCURACY) {
             return [
-                'status' => Checkpoint::VERIFIED, 'reason' => null,
-                'message' => 'Verified presence — inside the '.$site->name.' geofence ('.number_format((float) $campaignDistance).' m from centre).',
-                'distance' => $campaignDistance, 'within' => true,
-                'matched_site_id' => $site->id, 'gps_label' => 'Verified · '.number_format((float) $campaignDistance).' m',
+                'status' => Checkpoint::GPS_UNAVAILABLE, 'verification' => null, 'reason' => 'low_gps_accuracy',
+                'message' => 'GPS accuracy was ±'.number_format((float) $acc)." m and the fix landed {$dist} m from {$site?->name} — too weak to confirm presence. Retry for a better fix.",
+                'distance' => $campaignDistance, 'within' => false, 'matched_site_id' => $result->site?->id,
+                'gps_label' => 'Low accuracy ±'.number_format((float) $acc).' m',
             ];
         }
 
         if ($result->within && $result->site) {
-            // Inside another authorized location (e.g. head office). Not what
-            // the campaign is checking for, but not an unexplained absence either.
             return [
-                'status' => Checkpoint::PENDING_REVIEW, 'reason' => 'outside_geofence',
-                'message' => 'At '.$result->site->name.' (an authorized location), '.number_format((float) $campaignDistance).' m from '.$site?->name.'.',
-                'distance' => $campaignDistance, 'within' => false,
-                'matched_site_id' => $result->site->id, 'gps_label' => 'Alt. site · '.$result->site->name,
+                'status' => Checkpoint::PENDING_REVIEW, 'verification' => null, 'reason' => 'alternate_location',
+                'message' => "At {$result->site->name} (an authorized location), {$dist} m from {$site?->name}. Needs HR review.",
+                'distance' => $campaignDistance, 'within' => false, 'matched_site_id' => $result->site->id,
+                'gps_label' => 'Alt. site · '.$result->site->name,
             ];
         }
 
         return [
-            'status' => Checkpoint::FAILED, 'reason' => 'outside_geofence',
-            'message' => 'Outside the '.($site?->name ?? 'site').' geofence — about '.number_format((float) $campaignDistance).' m from the site centre (radius '.(int) ($site?->geofence_radius_m ?? 0).' m).',
-            'distance' => $campaignDistance, 'within' => false,
-            'matched_site_id' => null, 'gps_label' => 'Outside · '.number_format((float) $campaignDistance).' m',
+            'status' => Checkpoint::OUTSIDE_GEOFENCE, 'verification' => null, 'reason' => 'outside_geofence',
+            'message' => "Outside the {$site?->name} geofence — about {$dist} m from the site centre (radius ".(int) ($site?->geofence_radius_m ?? 0).' m).',
+            'distance' => $campaignDistance, 'within' => false, 'matched_site_id' => null,
+            'gps_label' => "Outside · {$dist} m",
         ];
     }
 

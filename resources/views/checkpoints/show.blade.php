@@ -1,17 +1,15 @@
 @php
-    use App\Models\Checkpoint;
     use App\Models\CheckpointCampaign;
     $c = $campaign;
-    $n = fn ($k) => (int) ($counts[$k] ?? 0);
-    $closed = $n(Checkpoint::VERIFIED) + $n(Checkpoint::FAILED) + $n(Checkpoint::MISSED) + $n(Checkpoint::EXPIRED) + $n(Checkpoint::PENDING_REVIEW);
-    $startsToday = $c->start_date->lte(today());
+    $live = $c->isLive();
 @endphp
 <x-app-layout>
     <x-slot name="header">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · {{ $c->name }}</h1>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · {{ $c->isDraft() ? 'Review' : 'Monitoring' }}</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-5">
+    <div class="mx-auto max-w-7xl space-y-5"
+         x-data="monitor({ live: @js($live), status: @js($c->status), expiresAt: @js($c->expires_at?->toIso8601String()), serverNow: @js(now()->toIso8601String()), statusUrl: @js(route('checkpoints.status', $c)) })" x-init="init()">
         @if(session('status'))
             <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
         @endif
@@ -19,141 +17,161 @@
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ $errors->first() }}</div>
         @endif
 
-        {{-- Header / controls --}}
+        {{-- Header: shared checkpoint info + controls --}}
         <div class="card p-5">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div class="min-w-0">
                     <a href="{{ route('checkpoints.index') }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">← Check Point</a>
+                    @if($c->starts_at)<span class="text-xs text-gray-400"> · </span><a href="{{ route('checkpoints.daily', ['date' => $c->starts_at->toDateString(), 'site' => $c->project_site_id]) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">All checkpoints on {{ $c->starts_at->format('M j') }} at this site</a>@endif
                     <div class="mt-1 flex flex-wrap items-center gap-2">
                         <h2 class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ $c->name }}</h2>
-                        <x-campaign-status-badge :status="$c->status" />
+                        <x-campaign-status-badge :campaign="$c" />
                     </div>
-                    <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">
-                        {{ $c->site?->name }} · {{ $c->start_date->format('M j') }} – {{ $c->end_date->format('M j, Y') }} ·
-                        {{ \Carbon\Carbon::parse($c->working_start_time)->format('g:i A') }}–{{ \Carbon\Carbon::parse($c->working_end_time)->format('g:i A') }}
-                    </p>
+                    <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">{{ $c->site?->name }} · <span class="font-medium text-gray-800 dark:text-slate-100">“{{ $c->instruction }}”</span></p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-1.5">
-                    @if($c->canActivate())
+                    @if($c->isDraft())
                         @can('create checkpoint campaign')
                             <a href="{{ route('checkpoints.edit', $c) }}" class="rounded-xs border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Edit</a>
                         @endcan
                         @can('activate checkpoint campaign')
-                            @if($c->status === CheckpointCampaign::DRAFT)
-                                <x-confirm-action :action="route('checkpoints.activate', $c)" size="md" tone="brand" variant="primary"
-                                    :button="$startsToday ? 'Activate now' : 'Schedule for ' . $c->start_date->format('M j')"
-                                    title="Activate this checkpoint campaign?"
-                                    message="Are you sure you want to activate this checkpoint campaign for the selected employees and project site? {{ $startsToday ? 'Random checkpoints for today will be generated immediately.' : 'It will start automatically on ' . $c->start_date->format('M j, Y') . '.' }}" />
-                            @endif
+                            <x-confirm-action :action="route('checkpoints.activate', $c)" size="md" variant="primary" button="Activate now"
+                                title="Activate this checkpoint now?"
+                                message="The server will set one start time (now) and one deadline ({{ $c->response_window_minutes }} minutes from now) for all {{ $employees->count() }} selected employee(s) at {{ $c->site?->name }}, and notify them immediately." />
+                            <div x-data="{ open: false }" class="inline-block">
+                                <button type="button" @click="open = true" class="rounded-xs border border-sky-300 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30">{{ $c->isScheduled() ? 'Change start time' : 'Set start time' }}</button>
+                                <template x-teleport="body">
+                                    <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="open = false">
+                                        <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" @click="open = false"></div>
+                                        <form method="POST" action="{{ route('checkpoints.schedule', $c) }}" class="relative w-full max-w-md rounded-xs border border-gray-200 bg-white p-5 shadow-2xl dark:border-hair dark:bg-surface">
+                                            @csrf
+                                            <h3 class="text-base font-semibold text-gray-900 dark:text-slate-100">Schedule the checkpoint start</h3>
+                                            <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">At this time the server activates the checkpoint for everyone with a {{ $c->response_window_minutes }}-minute window and sends the notifications.</p>
+                                            <input type="datetime-local" name="scheduled_start_at" required value="{{ old('scheduled_start_at', $c->scheduled_start_at?->format('Y-m-d\TH:i') ?? now()->addMinutes(30)->format('Y-m-d\TH:i')) }}"
+                                                   class="mt-3 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                                            <div class="mt-4 flex justify-end gap-2">
+                                                <button type="button" @click="open = false" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-slate-600 dark:text-slate-200">Cancel</button>
+                                                <button class="rounded-xs bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700">Schedule</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </template>
+                            </div>
                         @endcan
                         @can('end checkpoint campaign')
-                            <x-confirm-action :action="route('checkpoints.cancel', $c)" tone="rose" size="md" button="Cancel campaign" reason
-                                title="Cancel this campaign?" message="The campaign will not run. It stays in history as cancelled." />
+                            <x-confirm-action :action="route('checkpoints.cancel', $c)" tone="rose" size="md" button="Cancel" reason title="Cancel this checkpoint?" message="It will not run. It stays in history as cancelled." />
                         @endcan
                     @endif
 
                     @if($c->status === CheckpointCampaign::ACTIVE)
                         @can('pause checkpoint campaign')
-                            <x-confirm-action :action="route('checkpoints.pause', $c)" tone="amber" size="md" button="Pause" reason
-                                title="Pause this campaign?" message="No new checkpoints will open while paused. Checkpoints that are already open keep running until they expire." />
+                            <x-confirm-action :action="route('checkpoints.pause', $c)" tone="amber" size="md" button="Pause" reason title="Pause this checkpoint?" message="The countdown freezes for everyone and submissions are put on hold. When you resume, the deadline is extended by the paused time so all employees still get the full window." />
                         @endcan
                     @endif
                     @if($c->status === CheckpointCampaign::PAUSED)
                         @can('pause checkpoint campaign')
-                            <x-confirm-action :action="route('checkpoints.resume', $c)" tone="emerald" size="md" button="Resume"
-                                title="Resume this campaign?" message="Remaining checkpoints for today will open at their scheduled times. Any whose time passed while paused are skipped." />
+                            <x-confirm-action :action="route('checkpoints.resume', $c)" tone="emerald" size="md" button="Resume" title="Resume this checkpoint?" message="The countdown continues with the deadline moved by the paused duration — the same new deadline for everyone." />
                         @endcan
                     @endif
-                    @if($c->isLive())
+                    @if($live)
                         @can('end checkpoint campaign')
-                            <x-confirm-action :action="route('checkpoints.end', $c)" tone="rose" size="md" button="End campaign" reason
-                                title="End this campaign early?" message="Pending checkpoints are cancelled. All results, photos and reviews are kept." />
+                            <x-confirm-action :action="route('checkpoints.end', $c)" tone="rose" size="md" button="End now" title="Close the window now?" message="Employees without a valid submission are marked missed immediately. Results are kept." />
+                            <x-confirm-action :action="route('checkpoints.cancel', $c)" tone="rose" size="md" button="Cancel" reason title="Cancel this checkpoint?" message="Stops the checkpoint without marking anyone as missed. Responses so far are kept." />
                         @endcan
                     @endif
-                    @if($c->status === CheckpointCampaign::COMPLETED && ! $c->closed_at)
+                    @if($c->status === CheckpointCampaign::EXPIRED)
                         @can('end checkpoint campaign')
-                            <x-confirm-action :action="route('checkpoints.close', $c)" tone="brand" size="md" button="Close campaign"
-                                title="Close this campaign?" message="Marks the completed campaign as reviewed and closed under your name." />
+                            <x-confirm-action :action="route('checkpoints.complete', $c)" tone="brand" size="md" button="Mark completed"
+                                title="Mark this checkpoint completed?" message="{{ $counts['open_follow_ups'] ? $counts['open_follow_ups'] . ' employee(s) still have an open follow-up. ' : '' }}You can still review individual cases afterwards." />
                         @endcan
                     @endif
                     @can('export checkpoint reports')
-                        <a href="{{ route('checkpoints.export', $c) }}" class="rounded-xs border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Export CSV</a>
+                        @unless($c->isDraft())
+                            <a href="{{ route('checkpoints.export', $c) }}" class="rounded-xs border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Export CSV</a>
+                        @endunless
                     @endcan
                 </div>
             </div>
 
-            @if($c->status === CheckpointCampaign::DRAFT)
-                <div class="mt-4 rounded-xs border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/30 dark:text-sky-200">
-                    <strong>Review the configuration below.</strong> Nothing is sent to employees until you activate the campaign.
+            {{-- Official times --}}
+            <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Start time</dt><dd class="font-display text-lg font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->starts_at?->format('g:i A') ?? ($c->scheduled_start_at ? $c->scheduled_start_at->format('M j, g:i A') : '—') }}</dd></div>
+                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Deadline</dt><dd class="font-display text-lg font-bold tabular-nums text-accent-700 dark:text-accent-300">{{ $c->expires_at?->format('g:i A') ?? '—' }}</dd></div>
+                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Response window</dt><dd class="font-display text-lg font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->response_window_minutes }} min</dd></div>
+                <div class="rounded-xs px-3 py-2 {{ $live ? 'bg-accent-50 dark:bg-accent-900/20' : 'bg-gray-50 dark:bg-slate-800/60' }}"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Remaining</dt>
+                    <dd class="font-display text-lg font-bold tabular-nums {{ $live ? 'text-accent-700 dark:text-accent-300' : 'text-gray-500' }}">
+                        @if($c->status === CheckpointCampaign::PAUSED) Paused @elseif($live) <span x-text="countdown()">{{ gmdate('i:s', $c->secondsRemaining()) }}</span> @elseif($c->expires_at) Closed @else — @endif
+                    </dd>
                 </div>
+                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Activated by</dt><dd class="text-sm text-gray-900 dark:text-slate-100">{{ $c->activator?->name ?? ($c->activated_at ? 'Scheduler' : '—') }}<span class="block text-[11px] text-gray-500">{{ $c->activated_at?->format('M j, g:i A') }}</span></dd></div>
+                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Created by</dt><dd class="text-sm text-gray-900 dark:text-slate-100">{{ $c->creator?->name ?? '—' }}<span class="block text-[11px] text-gray-500">{{ $c->created_at->format('M j, g:i A') }}</span></dd></div>
+            </dl>
+            @if($c->reason)<p class="mt-3 text-xs text-gray-500 dark:text-slate-400">Reason: “{{ $c->reason }}”</p>@endif
+            @if($live)
+                <p class="mt-3 text-xs text-gray-500 dark:text-slate-400">Every employee shares this start time and deadline; the server clock is the official time. This page refreshes automatically while the checkpoint is running.</p>
             @endif
         </div>
 
-        <div class="grid gap-5 lg:grid-cols-3">
-            {{-- Configuration --}}
-            <section class="card p-5 lg:col-span-2">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Configuration</h3>
-                <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Project site</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->site?->name }} <span class="text-xs text-gray-500">({{ $c->site?->geofence_radius_m }} m geofence)</span></dd></div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Dates</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->start_date->format('D, M j') }} – {{ $c->end_date->format('D, M j, Y') }}{{ $c->include_weekends ? ' (incl. weekends)' : ' (weekdays only)' }}</dd></div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Working hours</dt><dd class="text-gray-900 dark:text-slate-100">{{ \Carbon\Carbon::parse($c->working_start_time)->format('g:i A') }} – {{ \Carbon\Carbon::parse($c->working_end_time)->format('g:i A') }}</dd></div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Checkpoints</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->checkpoints_per_day }} per day · {{ $c->minimum_interval_minutes }}–{{ $c->maximum_interval_minutes }} min apart · {{ $c->response_window_minutes }}-min response window</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-xs text-gray-500 dark:text-slate-400">Reason for activation</dt><dd class="text-gray-900 dark:text-slate-100">“{{ $c->reason }}”</dd></div>
-                    <div class="sm:col-span-2">
-                        <dt class="text-xs text-gray-500 dark:text-slate-400">Photo instructions (rotating)</dt>
-                        <dd class="mt-1 flex flex-wrap gap-1.5">
-                            @foreach($c->photo_instructions as $i)
-                                <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-700 dark:bg-slate-700 dark:text-slate-200">{{ $i }}</span>
-                            @endforeach
-                        </dd>
-                    </div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Created by</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->creator?->name ?? '—' }} · {{ $c->created_at->format('M j, g:i A') }}</dd></div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Activated by</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->activator?->name ?? '—' }}@if($c->activated_at) · {{ $c->activated_at->format('M j, g:i A') }}@endif</dd></div>
-                    <div><dt class="text-xs text-gray-500 dark:text-slate-400">Closed by</dt><dd class="text-gray-900 dark:text-slate-100">{{ $c->closer?->name ?? '—' }}@if($c->closed_at) · {{ $c->closed_at->format('M j, g:i A') }}@endif</dd></div>
-                    @if($c->isActive())
-                        <div><dt class="text-xs text-gray-500 dark:text-slate-400">Queued today</dt><dd class="text-gray-900 dark:text-slate-100">{{ $upcomingToday }} checkpoint(s) still to open <span class="text-xs text-gray-500">(times hidden)</span></dd></div>
-                    @endif
-                </dl>
-            </section>
-
-            {{-- Employees & counters --}}
+        @if($c->isDraft())
+            {{-- Draft: review employees before activating --}}
             <section class="card p-5">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Results</h3>
-                <div class="mt-3 grid grid-cols-3 gap-2 text-center">
-                    <div class="rounded-xs bg-emerald-50 p-2 dark:bg-emerald-900/20"><p class="text-lg font-bold text-emerald-700 dark:text-emerald-300">{{ $n(Checkpoint::VERIFIED) }}</p><p class="text-[10px] uppercase tracking-wide text-emerald-800/70 dark:text-emerald-200/70">Verified</p></div>
-                    <div class="rounded-xs bg-rose-50 p-2 dark:bg-rose-900/20"><p class="text-lg font-bold text-rose-700 dark:text-rose-300">{{ $n(Checkpoint::MISSED) + $n(Checkpoint::EXPIRED) }}</p><p class="text-[10px] uppercase tracking-wide text-rose-800/70 dark:text-rose-200/70">Missed</p></div>
-                    <div class="rounded-xs bg-rose-50 p-2 dark:bg-rose-900/20"><p class="text-lg font-bold text-rose-700 dark:text-rose-300">{{ $n(Checkpoint::FAILED) }}</p><p class="text-[10px] uppercase tracking-wide text-rose-800/70 dark:text-rose-200/70">Failed</p></div>
-                    <div class="rounded-xs bg-amber-50 p-2 dark:bg-amber-900/20"><p class="text-lg font-bold text-amber-700 dark:text-amber-300">{{ $n(Checkpoint::PENDING_REVIEW) }}</p><p class="text-[10px] uppercase tracking-wide text-amber-800/70 dark:text-amber-200/70">Pending</p></div>
-                    <div class="rounded-xs bg-sky-50 p-2 dark:bg-sky-900/20"><p class="text-lg font-bold text-sky-700 dark:text-sky-300">{{ $n(Checkpoint::OPEN) }}</p><p class="text-[10px] uppercase tracking-wide text-sky-800/70 dark:text-sky-200/70">Open</p></div>
-                    <div class="rounded-xs bg-slate-100 p-2 dark:bg-slate-700/40"><p class="text-lg font-bold text-slate-700 dark:text-slate-200">{{ $closed }}</p><p class="text-[10px] uppercase tracking-wide text-slate-600/70 dark:text-slate-300/70">Closed</p></div>
+                <div class="rounded-xs border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/30 dark:text-sky-200">
+                    <strong>Review before activating.</strong> Nothing is sent until you activate the checkpoint or its scheduled start time arrives.
                 </div>
-
-                <h3 class="mt-5 text-sm font-semibold text-gray-900 dark:text-slate-100">Employees covered <span class="font-normal text-gray-500">({{ $c->employees->count() }})</span></h3>
-                <ul class="mt-2 max-h-64 divide-y divide-gray-100 overflow-y-auto text-sm dark:divide-slate-700">
-                    @foreach($c->employees as $e)
-                        <li class="flex items-center justify-between py-1.5">
-                            <span class="text-gray-900 dark:text-slate-100">{{ $e->full_name }}</span>
-                            <span class="text-xs text-gray-500 dark:text-slate-400">{{ $e->employee_no }}</span>
-                        </li>
-                    @endforeach
-                </ul>
+                <h3 class="mt-4 text-sm font-semibold text-gray-900 dark:text-slate-100">Selected employees <span class="font-normal text-gray-500">({{ $employees->count() }})</span></h3>
+                <div class="mt-2 overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                        <thead class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400"><tr><th class="py-2 pr-4">Employee</th><th class="py-2 pr-4">No.</th><th class="py-2 pr-4">Type</th><th class="py-2">Current assignment</th></tr></thead>
+                        <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                            @foreach($employees as $e)
+                                <tr>
+                                    <td class="py-2 pr-4 font-medium text-gray-900 dark:text-slate-100">{{ $e->full_name }}</td>
+                                    <td class="py-2 pr-4 text-gray-500 dark:text-slate-400">{{ $e->employee_no }}</td>
+                                    <td class="py-2 pr-4 capitalize text-gray-600 dark:text-slate-300">{{ $e->employee_type }}</td>
+                                    <td class="py-2 {{ $e->activeAssignment?->site_id === $c->project_site_id ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-500 dark:text-slate-400' }}">{{ $e->activeAssignment?->site?->name ?? 'Office / unassigned' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
             </section>
-        </div>
-
-        {{-- Checkpoint results --}}
-        <section class="card overflow-hidden">
-            <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Checkpoints</h3>
-                @can('view checkpoint results')
-                    <a href="{{ route('checkpoints.results.index', ['campaign' => $c->id]) }}" class="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">Filter &amp; search</a>
-                @endcan
+        @else
+            {{-- Counters --}}
+            @php
+                $tiles = [
+                    ['Included', $counts['total'], 'text-gray-900 dark:text-slate-100'],
+                    ['Completed', $counts['completed'], 'text-emerald-600 dark:text-emerald-400'],
+                    ['Pending', $counts['pending'], $live ? 'text-sky-600 dark:text-sky-400' : 'text-gray-500'],
+                    ['Missed', $counts['missed'], 'text-rose-600 dark:text-rose-400'],
+                    ['Outside geofence', $counts['outside'], 'text-rose-600 dark:text-rose-400'],
+                    ['Requires review', $counts['review'], 'text-amber-600 dark:text-amber-400'],
+                ];
+            @endphp
+            <div class="grid grid-cols-3 gap-3 lg:grid-cols-6">
+                @foreach($tiles as [$label, $value, $tone])
+                    <div class="card p-4"><p class="eyebrow text-[10px]">{{ $label }}</p><p class="mt-1.5 text-2xl font-bold tabular-nums {{ $tone }}">{{ $value }}</p></div>
+                @endforeach
             </div>
-            <x-checkpoints.activity-table :checkpoints="$checkpoints" :show-campaign="false" empty="No checkpoints have opened yet. Upcoming times are hidden by design." />
-            @if($checkpoints->hasPages())
-                <div class="border-t border-gray-100 px-4 py-3 dark:border-slate-700">{{ $checkpoints->links() }}</div>
-            @endif
-        </section>
+
+            {{-- TABLE 1 --}}
+            <section class="card overflow-hidden">
+                <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Completed employees</h3>
+                    <span class="text-xs text-gray-500 dark:text-slate-400">{{ $completed->count() }} of {{ $counts['total'] }}</span>
+                </div>
+                <x-checkpoints.completed-table :rows="$completed" :campaign="$c" />
+            </section>
+
+            {{-- TABLE 2 --}}
+            <section class="card overflow-hidden">
+                <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">{{ $live ? 'Pending employees' : 'Pending / non-compliant employees' }}</h3>
+                    <span class="text-xs text-gray-500 dark:text-slate-400">{{ $pending->count() }}@if(! $live && $counts['open_follow_ups']) · {{ $counts['open_follow_ups'] }} follow-up(s) open @endif</span>
+                </div>
+                <x-checkpoints.pending-table :rows="$pending" :campaign="$c" />
+            </section>
+        @endif
 
         {{-- Audit log --}}
         <section class="card p-5">
@@ -165,9 +183,7 @@
                         <span class="font-medium text-gray-900 dark:text-slate-100">{{ $a->action_label }}</span>
                         <span class="text-xs text-gray-500 dark:text-slate-400">{{ $a->user?->name ?? 'System' }}@if($a->checkpoint_id) · CP-{{ str_pad($a->checkpoint_id, 6, '0', STR_PAD_LEFT) }}@endif</span>
                         @if($a->details)
-                            <span class="w-full text-xs text-gray-500 dark:text-slate-400 sm:w-auto">
-                                @foreach($a->details as $k => $v)<span class="mr-2">{{ $k }}: {{ is_scalar($v) ? $v : json_encode($v) }}</span>@endforeach
-                            </span>
+                            <span class="w-full text-xs text-gray-500 dark:text-slate-400 sm:w-auto">@foreach($a->details as $k => $v)<span class="mr-2">{{ $k }}: {{ is_scalar($v) ? $v : json_encode($v) }}</span>@endforeach</span>
                         @endif
                     </li>
                 @empty
@@ -176,4 +192,34 @@
             </ul>
         </section>
     </div>
+
+    <script>
+        function monitor({ live, status, expiresAt, serverNow, statusUrl }) {
+            return {
+                live, status, offset: new Date(serverNow).getTime() - Date.now(), expires: expiresAt ? new Date(expiresAt).getTime() : null,
+                secondsLeft: 0, lastChange: null,
+                init() {
+                    if (!this.live) return;
+                    this.tick(); setInterval(() => this.tick(), 1000);
+                    setInterval(() => this.refresh(), 10000);
+                },
+                tick() {
+                    if (!this.expires) return;
+                    this.secondsLeft = Math.max(0, Math.floor((this.expires - (Date.now() + this.offset)) / 1000));
+                },
+                countdown() { return Math.floor(this.secondsLeft / 60) + ':' + String(this.secondsLeft % 60).padStart(2, '0'); },
+                async refresh() {
+                    if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+                    try {
+                        const r = await fetch(statusUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+                        if (!r.ok) return;
+                        const d = await r.json();
+                        if (this.lastChange === null) { this.lastChange = d.changed_at; }
+                        if (d.status !== this.status || d.changed_at !== this.lastChange) location.reload();
+                        if (d.expires_at) this.expires = new Date(d.expires_at).getTime();
+                    } catch (e) {}
+                },
+            };
+        }
+    </script>
 </x-app-layout>

@@ -72,7 +72,7 @@
                     <x-nav-item :active="request()->routeIs('leave.*')" :href="route('leave.index')" icon="calendar">Leave</x-nav-item>
                     <x-nav-item :active="request()->routeIs('overtime.*')" :href="route('overtime.index')" icon="plus-clock">Overtime</x-nav-item>
                     @if($user?->employee)
-                        @php $openCheckpoints = \App\Models\Checkpoint::where('employee_id', $user->employee->id)->where('verification_status', 'open')->count(); @endphp
+                        @php $openCheckpoints = \App\Models\Checkpoint::where('employee_id', $user->employee->id)->whereIn('status', \App\Models\Checkpoint::WAITING_STATUSES)->whereHas('campaign', fn ($q) => $q->where('status', 'active'))->count(); @endphp
                         <x-nav-item :active="request()->routeIs('my-checkpoints.*')" :href="route('my-checkpoints.index')" icon="shield-check" :badge="$openCheckpoints ?: null">My Checkpoints</x-nav-item>
                     @endif
                 </div>
@@ -212,6 +212,80 @@
             {{ $slot }}
         </main>
     </div>
+
+    {{-- Live presence checkpoint alert: polls the server and pops a modal +
+         browser notification the moment HR activates a checkpoint. The
+         server-side deadline is the only official one; this is a heads-up. --}}
+    @if($user?->employee && ! request()->routeIs('my-checkpoints.show'))
+        <div x-data="checkpointAlert({{ (int) config('checkpoints.poll_seconds', 20) }})" x-init="init()">
+            <div x-show="cp && !dismissed" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="dismissed = true">
+                <div class="fixed inset-0 bg-gray-900/70 backdrop-blur-sm"></div>
+                <div class="relative w-full max-w-md overflow-hidden rounded-xs border-2 border-accent-500 bg-white shadow-2xl dark:bg-surface" role="alertdialog" aria-live="assertive">
+                    <div class="flex items-center gap-3 bg-accent-500 px-5 py-3 text-white">
+                        <svg class="h-6 w-6 shrink-0 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>
+                        <div class="min-w-0 flex-1">
+                            <p class="font-display text-sm font-bold uppercase tracking-wider">Live presence checkpoint active</p>
+                            <p class="text-xs text-white/85" x-text="cp?.site"></p>
+                        </div>
+                        <p class="font-display text-2xl font-extrabold tabular-nums" x-text="countdown()"></p>
+                    </div>
+                    <div class="space-y-3 px-5 py-4 text-sm text-gray-700 dark:text-slate-200">
+                        <p x-text="cp?.message"></p>
+                        <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                            <dt class="text-gray-500 dark:text-slate-400">Instruction</dt><dd class="font-medium text-gray-900 dark:text-slate-100" x-text="cp?.instruction"></dd>
+                            <dt class="text-gray-500 dark:text-slate-400">Start</dt><dd class="tabular-nums" x-text="fmt(cp?.starts_at)"></dd>
+                            <dt class="text-gray-500 dark:text-slate-400">Deadline</dt><dd class="tabular-nums font-semibold text-accent-700 dark:text-accent-300" x-text="fmt(cp?.expires_at)"></dd>
+                        </dl>
+                        <div class="flex gap-2 pt-1">
+                            <a :href="cp?.url" class="flex-1 rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2.5 text-center text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">Complete verification</a>
+                            <button type="button" @click="dismissed = true" class="rounded-xs border border-gray-300 px-3 py-2 text-sm text-gray-600 dark:border-slate-600 dark:text-slate-300">Later</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+            function checkpointAlert(pollSeconds) {
+                return {
+                    cp: null, dismissed: false, seenId: null, offset: 0, secondsLeft: 0,
+                    init() {
+                        this.poll();
+                        setInterval(() => this.poll(), pollSeconds * 1000);
+                        setInterval(() => this.tick(), 1000);
+                        window.addEventListener('online', () => this.poll());
+                    },
+                    async poll() {
+                        try {
+                            const r = await fetch(@json(route('my-checkpoints.active')), { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                            if (!r.ok) return;
+                            const d = await r.json();
+                            this.offset = new Date(d.server_now).getTime() - Date.now();
+                            if (d.active && d.active.id !== this.seenId) {
+                                this.seenId = d.active.id; this.dismissed = false; this.notify(d.active);
+                            }
+                            this.cp = d.active;
+                            this.tick();
+                        } catch (e) { /* offline — keep last state */ }
+                    },
+                    tick() {
+                        if (!this.cp) return;
+                        this.secondsLeft = Math.max(0, Math.floor((new Date(this.cp.expires_at).getTime() - (Date.now() + this.offset)) / 1000));
+                        if (this.secondsLeft === 0) this.cp = null;
+                    },
+                    countdown() { return Math.floor(this.secondsLeft / 60) + ':' + String(this.secondsLeft % 60).padStart(2, '0'); },
+                    fmt(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' }) : ''; },
+                    // Browser notification when permission was granted (see My Checkpoints page).
+                    notify(cp) {
+                        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+                        try {
+                            const n = new Notification('Live presence checkpoint active', { body: cp.message + ' ' + cp.site + ' — ' + cp.instruction, tag: 'checkpoint-' + cp.id, requireInteraction: true });
+                            n.onclick = () => { window.focus(); location.href = cp.url; };
+                        } catch (e) {}
+                    },
+                };
+            }
+        </script>
+    @endif
 
     {{-- Image lightbox (click any photo to enlarge) --}}
     <div x-data="{ src: null }"

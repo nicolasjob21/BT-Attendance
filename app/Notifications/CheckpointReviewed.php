@@ -5,7 +5,7 @@ namespace App\Notifications;
 use App\Models\Checkpoint;
 use Illuminate\Notifications\Notification;
 
-/** Sent to the employee when HR records a decision on their checkpoint exception. */
+/** Sent to the employee when HR approves or rejects their checkpoint exception. */
 class CheckpointReviewed extends Notification
 {
     public function __construct(public Checkpoint $checkpoint) {}
@@ -18,13 +18,13 @@ class CheckpointReviewed extends Notification
     public function toArray(object $notifiable): array
     {
         $cp = $this->checkpoint;
-        $ok = in_array($cp->review_result, ['valid_reason', 'approved_official_errand', 'gps_issue', 'device_or_network_issue', 'confirmed_attendance'], true);
+        $ok = $cp->status === Checkpoint::APPROVED_EXCEPTION;
 
         return [
             'kind' => $ok ? 'approved' : 'rejected',
-            'title' => 'Checkpoint reviewed',
-            'message' => "Your checkpoint {$cp->reference} was reviewed: {$cp->review_result_label}."
-                .($cp->review_remarks ? " “{$cp->review_remarks}”" : ''),
+            'title' => $ok ? 'Checkpoint exception approved' : 'Checkpoint exception rejected',
+            'message' => "Your checkpoint {$cp->reference()} was ".($ok ? 'approved' : 'rejected')
+                .($cp->hr_reason_label ? " ({$cp->hr_reason_label})" : '').($cp->hr_note ? " — “{$cp->hr_note}”" : '').'.',
             'url' => route('my-checkpoints.show', $cp),
         ];
     }

@@ -10,18 +10,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * A temporary random-presence-verification session for one project site.
- * Created as a draft, reviewed, then activated now or scheduled for later.
+ * ONE shared live presence checkpoint for a project site. When HR activates
+ * it the server stamps a single start time and a single deadline that every
+ * selected employee must meet.
  */
 class CheckpointCampaign extends Model
 {
     public const DRAFT = 'draft';
 
-    public const SCHEDULED = 'scheduled';
-
     public const ACTIVE = 'active';
 
     public const PAUSED = 'paused';
+
+    public const EXPIRED = 'expired';
 
     public const COMPLETED = 'completed';
 
@@ -29,9 +30,9 @@ class CheckpointCampaign extends Model
 
     public const STATUSES = [
         self::DRAFT => 'Draft',
-        self::SCHEDULED => 'Scheduled',
         self::ACTIVE => 'Active',
         self::PAUSED => 'Paused',
+        self::EXPIRED => 'Expired',
         self::COMPLETED => 'Completed',
         self::CANCELLED => 'Cancelled',
     ];
@@ -41,10 +42,9 @@ class CheckpointCampaign extends Model
     protected function casts(): array
     {
         return [
-            'start_date' => 'date',
-            'end_date' => 'date',
-            'include_weekends' => 'boolean',
-            'photo_instructions' => 'array',
+            'scheduled_start_at' => 'datetime',
+            'starts_at' => 'datetime',
+            'expires_at' => 'datetime',
             'activated_at' => 'datetime',
             'paused_at' => 'datetime',
             'closed_at' => 'datetime',
@@ -69,6 +69,7 @@ class CheckpointCampaign extends Model
             ->withTimestamps();
     }
 
+    /** One response row per employee (created on activation). */
     public function checkpoints(): HasMany
     {
         return $this->hasMany(Checkpoint::class, 'campaign_id');
@@ -101,13 +102,30 @@ class CheckpointCampaign extends Model
         return $q->whereIn('status', (array) $status);
     }
 
-    /** Campaigns that are done (kept as history, never deleted). */
+    /** Campaigns whose window is running or frozen. */
+    public function scopeLive(Builder $q): Builder
+    {
+        return $q->whereIn('status', [self::ACTIVE, self::PAUSED]);
+    }
+
+    /** Finished campaigns, kept as history. */
     public function scopeHistory(Builder $q): Builder
     {
         return $q->whereIn('status', [self::COMPLETED, self::CANCELLED]);
     }
 
     // ── State helpers ───────────────────────────────────────────────
+
+    public function isDraft(): bool
+    {
+        return $this->status === self::DRAFT;
+    }
+
+    /** Draft with a planned start the dispatcher will honour. */
+    public function isScheduled(): bool
+    {
+        return $this->status === self::DRAFT && $this->scheduled_start_at !== null;
+    }
 
     public function isActive(): bool
     {
@@ -124,47 +142,30 @@ class CheckpointCampaign extends Model
         return in_array($this->status, [self::COMPLETED, self::CANCELLED], true);
     }
 
-    public function canActivate(): bool
+    /** Accepting submissions right now (active and inside the window). */
+    public function acceptsSubmissions(?Carbon $now = null): bool
     {
-        return in_array($this->status, [self::DRAFT, self::SCHEDULED], true);
+        $now ??= Carbon::now();
+
+        return $this->isActive() && $this->starts_at && $this->expires_at
+            && $now->gte($this->starts_at) && $now->lte($this->expires_at);
     }
 
-    public function canEdit(): bool
+    public function secondsRemaining(?Carbon $now = null): int
     {
-        return in_array($this->status, [self::DRAFT, self::SCHEDULED], true);
-    }
-
-    /** Whether the campaign covers the given calendar day. */
-    public function coversDay(Carbon $day): bool
-    {
-        if ($day->lt($this->start_date->copy()->startOfDay()) || $day->gt($this->end_date->copy()->endOfDay())) {
-            return false;
+        if (! $this->expires_at) {
+            return 0;
         }
 
-        return $this->include_weekends || ! $day->isWeekend();
-    }
-
-    /** Working window on a given day as [start, end]. */
-    public function windowOn(Carbon $day): array
-    {
-        $date = $day->toDateString();
-
-        return [
-            Carbon::parse("{$date} {$this->working_start_time}"),
-            Carbon::parse("{$date} {$this->working_end_time}"),
-        ];
-    }
-
-    /** Whole-day minutes available for checkpoints. */
-    public function windowMinutes(): int
-    {
-        [$s, $e] = $this->windowOn(Carbon::today());
-
-        return max(0, (int) $s->diffInMinutes($e));
+        return max(0, (int) ($now ?? Carbon::now())->diffInSeconds($this->expires_at, false));
     }
 
     public function getStatusLabelAttribute(): string
     {
+        if ($this->isScheduled()) {
+            return 'Scheduled';
+        }
+
         return self::STATUSES[$this->status] ?? ucfirst($this->status);
     }
 }

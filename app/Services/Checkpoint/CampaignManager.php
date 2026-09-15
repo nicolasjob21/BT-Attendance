@@ -5,22 +5,21 @@ namespace App\Services\Checkpoint;
 use App\Models\Checkpoint;
 use App\Models\CheckpointCampaign;
 use App\Models\User;
+use App\Notifications\CheckpointActivated;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Campaign lifecycle: draft → scheduled/active → paused → completed/cancelled.
- * Every transition is audited. Checkpoint evidence is never deleted.
+ * Campaign lifecycle: draft → active → expired → completed (or paused /
+ * cancelled). Activation stamps ONE official start and ONE deadline for
+ * every selected employee. Every transition is audited; evidence is kept.
  */
 class CampaignManager
 {
-    public function __construct(
-        private CheckpointScheduler $scheduler,
-        private CheckpointAudit $audit,
-    ) {}
+    public function __construct(private CheckpointAudit $audit) {}
 
-    /** Create a draft campaign with its participants. */
+    /** Create a draft with its participants. */
     public function create(array $attributes, array $employeeIds, User $by): CheckpointCampaign
     {
         return DB::transaction(function () use ($attributes, $employeeIds, $by) {
@@ -35,10 +34,9 @@ class CampaignManager
         });
     }
 
-    /** Update a draft/scheduled campaign's configuration. */
     public function update(CheckpointCampaign $campaign, array $attributes, array $employeeIds, User $by): CheckpointCampaign
     {
-        abort_unless($campaign->canEdit(), 422, 'Only draft or scheduled campaigns can be edited.');
+        abort_unless($campaign->isDraft(), 422, 'Only a draft checkpoint can be edited.');
 
         return DB::transaction(function () use ($campaign, $attributes, $employeeIds, $by) {
             $campaign->update($attributes);
@@ -50,49 +48,82 @@ class CampaignManager
     }
 
     /**
-     * Activate now (if today is inside the campaign dates) or schedule the
-     * campaign to start automatically on its start date.
+     * Activate now: the server sets starts_at = now and expires_at = now +
+     * window, creates one response row per employee and notifies them all.
+     * $by is null when the dispatcher starts a scheduled checkpoint.
      */
-    public function activate(CheckpointCampaign $campaign, User $by, ?Carbon $now = null): CheckpointCampaign
+    public function activate(CheckpointCampaign $campaign, ?User $by, ?Carbon $now = null): CheckpointCampaign
     {
         $now ??= Carbon::now();
-        abort_unless($campaign->canActivate(), 422, 'This campaign cannot be activated from its current status.');
+        abort_unless($campaign->isDraft(), 422, 'This checkpoint cannot be activated from its current status.');
 
         if ($campaign->participants()->count() === 0) {
             throw ValidationException::withMessages(['employees' => 'Add at least one employee before activating.']);
         }
-        if ($campaign->end_date->lt($now->copy()->startOfDay())) {
-            throw ValidationException::withMessages(['end_date' => 'The campaign end date is already in the past.']);
-        }
 
-        $startsToday = $campaign->start_date->lte($now->copy()->startOfDay());
+        DB::transaction(function () use ($campaign, $by, $now) {
+            $starts = $now->copy()->startOfSecond();
+            $expires = $starts->copy()->addMinutes($campaign->response_window_minutes);
 
-        DB::transaction(function () use ($campaign, $by, $now, $startsToday) {
             $campaign->update([
-                'status' => $startsToday ? CheckpointCampaign::ACTIVE : CheckpointCampaign::SCHEDULED,
-                'activated_by' => $by->id,
+                'status' => CheckpointCampaign::ACTIVE,
+                'starts_at' => $starts,
+                'expires_at' => $expires,
+                'scheduled_start_at' => null,
+                'activated_by' => $by?->id,
                 'activated_at' => $now,
             ]);
-            $this->audit->campaign($campaign, $startsToday ? 'activated' : 'scheduled', $by, [
-                'start_date' => $campaign->start_date->toDateString(),
+
+            $this->audit->campaign($campaign, $by ? 'activated' : 'auto_started', $by, [
+                'starts_at' => $starts->toDateTimeString(),
+                'expires_at' => $expires->toDateTimeString(),
             ]);
 
-            if ($startsToday) {
-                // Generate the rest of today right away so the first random
-                // checkpoint can land within minutes of activation.
-                $this->scheduler->generateForDay($campaign, $now->copy()->startOfDay(), $now);
+            // One response row per employee — same start, same deadline.
+            $campaign->load('employees.user');
+            foreach ($campaign->employees as $employee) {
+                $cp = Checkpoint::firstOrCreate(
+                    ['campaign_id' => $campaign->id, 'employee_id' => $employee->id],
+                    ['project_site_id' => $campaign->project_site_id, 'status' => Checkpoint::PENDING],
+                );
+                if ($employee->user) {
+                    $employee->user->notify(new CheckpointActivated($cp));
+                    $cp->update(['status' => Checkpoint::NOTIFIED, 'notified_at' => $now]);
+                }
             }
         });
+
+        return $campaign->refresh();
+    }
+
+    /** Plan a start time; the dispatcher activates it at that moment. */
+    public function schedule(CheckpointCampaign $campaign, Carbon $at, User $by): CheckpointCampaign
+    {
+        abort_unless($campaign->isDraft(), 422, 'Only a draft checkpoint can be scheduled.');
+        if ($at->lte(Carbon::now())) {
+            throw ValidationException::withMessages(['scheduled_start_at' => 'The start time must be in the future — or activate now.']);
+        }
+        if ($campaign->participants()->count() === 0) {
+            throw ValidationException::withMessages(['employees' => 'Add at least one employee before scheduling.']);
+        }
+
+        $campaign->update(['scheduled_start_at' => $at]);
+        $this->audit->campaign($campaign, 'scheduled', $by, ['scheduled_start_at' => $at->toDateTimeString()]);
 
         return $campaign;
     }
 
+    /**
+     * Freeze the shared countdown. While paused no submission is accepted;
+     * the deadline is extended by the paused duration on resume so every
+     * employee still gets the full window (recorded in the audit log).
+     */
     public function pause(CheckpointCampaign $campaign, User $by, ?string $reason = null): CheckpointCampaign
     {
-        abort_unless($campaign->status === CheckpointCampaign::ACTIVE, 422, 'Only an active campaign can be paused.');
+        abort_unless($campaign->isActive(), 422, 'Only an active checkpoint can be paused.');
 
         $campaign->update(['status' => CheckpointCampaign::PAUSED, 'paused_by' => $by->id, 'paused_at' => now()]);
-        $this->audit->campaign($campaign, 'paused', $by, array_filter(['reason' => $reason]));
+        $this->audit->campaign($campaign, 'paused', $by, array_filter(['reason' => $reason, 'deadline_at_pause' => $campaign->expires_at?->toDateTimeString()]));
 
         return $campaign;
     }
@@ -100,70 +131,64 @@ class CampaignManager
     public function resume(CheckpointCampaign $campaign, User $by, ?Carbon $now = null): CheckpointCampaign
     {
         $now ??= Carbon::now();
-        abort_unless($campaign->status === CheckpointCampaign::PAUSED, 422, 'Only a paused campaign can be resumed.');
+        abort_unless($campaign->status === CheckpointCampaign::PAUSED, 422, 'Only a paused checkpoint can be resumed.');
 
-        DB::transaction(function () use ($campaign, $by, $now) {
-            // Checkpoints whose time passed while paused were never asked —
-            // drop them rather than opening a flood the moment we resume.
-            $skipped = $campaign->checkpoints()->status(Checkpoint::SCHEDULED)
-                ->where('scheduled_at', '<=', $now)
-                ->update([
-                    'verification_status' => Checkpoint::CANCELLED,
-                    'failure_reason' => 'campaign_paused',
-                    'validation_message' => 'Skipped: the campaign was paused at the scheduled time.',
-                ]);
-            $campaign->update(['status' => CheckpointCampaign::ACTIVE, 'paused_by' => null, 'paused_at' => null]);
-            $this->audit->campaign($campaign, 'resumed', $by, ['skipped_checkpoints' => $skipped]);
-        });
+        $pausedFor = (int) $campaign->paused_at->diffInSeconds($now);
+        $newDeadline = $campaign->expires_at->copy()->addSeconds($pausedFor);
+
+        $campaign->update([
+            'status' => CheckpointCampaign::ACTIVE,
+            'expires_at' => $newDeadline,
+            'paused_by' => null,
+            'paused_at' => null,
+        ]);
+        $this->audit->campaign($campaign, 'resumed', $by, [
+            'paused_seconds' => $pausedFor,
+            'new_deadline' => $newDeadline->toDateTimeString(),
+        ]);
 
         return $campaign;
     }
 
-    /** End an active/paused campaign early. Results are kept. */
-    public function end(CheckpointCampaign $campaign, User $by, ?string $reason = null): CheckpointCampaign
+    /** Cancel a draft, or abort a running checkpoint. Response rows are kept. */
+    public function cancel(CheckpointCampaign $campaign, User $by, ?string $reason = null): CheckpointCampaign
     {
-        abort_unless($campaign->isLive(), 422, 'Only an active or paused campaign can be ended.');
+        abort_if($campaign->isFinished(), 422, 'This checkpoint is already finished.');
 
         DB::transaction(function () use ($campaign, $by, $reason) {
-            $cancelled = $campaign->checkpoints()->status([Checkpoint::SCHEDULED, Checkpoint::OPEN])->update([
-                'verification_status' => Checkpoint::CANCELLED,
-                'failure_reason' => 'campaign_ended',
-                'validation_message' => 'The campaign was ended before this checkpoint closed.',
-            ]);
             $campaign->update([
-                'status' => CheckpointCampaign::COMPLETED,
+                'status' => CheckpointCampaign::CANCELLED,
                 'closed_by' => $by->id,
                 'closed_at' => now(),
             ]);
-            $this->audit->campaign($campaign, 'ended_early', $by, array_filter(['reason' => $reason, 'cancelled_checkpoints' => $cancelled]));
+            $this->audit->campaign($campaign, 'cancelled', $by, array_filter(['reason' => $reason]));
         });
 
         return $campaign;
     }
 
-    /** Cancel a draft or scheduled campaign that never ran. */
-    public function cancel(CheckpointCampaign $campaign, User $by, ?string $reason = null): CheckpointCampaign
+    /** HR signs off an expired checkpoint after follow-up. */
+    public function complete(CheckpointCampaign $campaign, User $by): CheckpointCampaign
     {
-        abort_unless($campaign->canActivate(), 422, 'Only a draft or scheduled campaign can be cancelled; end a running one instead.');
+        abort_unless($campaign->status === CheckpointCampaign::EXPIRED, 422, 'A checkpoint can be completed once it has expired.');
 
-        $campaign->update([
-            'status' => CheckpointCampaign::CANCELLED,
-            'closed_by' => $by->id,
-            'closed_at' => now(),
+        $campaign->update(['status' => CheckpointCampaign::COMPLETED, 'closed_by' => $by->id, 'closed_at' => now()]);
+        $this->audit->campaign($campaign, 'completed', $by, [
+            'open_follow_ups' => $campaign->checkpoints()->nonCompliant()->whereNull('reviewed_at')->count(),
         ]);
-        $this->audit->campaign($campaign, 'cancelled', $by, array_filter(['reason' => $reason]));
 
         return $campaign;
     }
 
-    /** Sign off a campaign that completed on its own (stamps closed_by/at). */
-    public function close(CheckpointCampaign $campaign, User $by): CheckpointCampaign
+    /** End the window early: expire now (used when HR has what they need). */
+    public function endNow(CheckpointCampaign $campaign, User $by, CheckpointDispatcher $dispatcher): CheckpointCampaign
     {
-        abort_unless($campaign->status === CheckpointCampaign::COMPLETED && $campaign->closed_at === null, 422, 'This campaign is not awaiting closure.');
+        abort_unless($campaign->isLive(), 422, 'Only a running checkpoint can be ended.');
 
-        $campaign->update(['closed_by' => $by->id, 'closed_at' => now()]);
-        $this->audit->campaign($campaign, 'closed', $by);
+        $campaign->update(['status' => CheckpointCampaign::ACTIVE, 'expires_at' => now(), 'paused_at' => null, 'paused_by' => null]);
+        $this->audit->campaign($campaign, 'ended_early', $by);
+        $dispatcher->expireCampaign($campaign->refresh(), now());
 
-        return $campaign;
+        return $campaign->refresh();
     }
 }

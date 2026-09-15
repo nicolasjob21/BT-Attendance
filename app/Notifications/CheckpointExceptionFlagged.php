@@ -2,13 +2,13 @@
 
 namespace App\Notifications;
 
-use App\Models\Checkpoint;
+use App\Models\CheckpointCampaign;
 use Illuminate\Notifications\Notification;
 
-/** Sent to checkpoint reviewers when a checkpoint is missed, failed, or needs review. */
+/** Sent to checkpoint reviewers when a checkpoint expires with non-compliant employees. */
 class CheckpointExceptionFlagged extends Notification
 {
-    public function __construct(public Checkpoint $checkpoint) {}
+    public function __construct(public CheckpointCampaign $campaign, public int $nonCompliant) {}
 
     public function via(object $notifiable): array
     {
@@ -17,15 +17,14 @@ class CheckpointExceptionFlagged extends Notification
 
     public function toArray(object $notifiable): array
     {
-        $cp = $this->checkpoint->loadMissing(['employee', 'site']);
-        $name = $cp->employee?->full_name ?? 'An employee';
+        $c = $this->campaign->loadMissing('site');
 
         return [
             'kind' => 'request',
-            'title' => 'Checkpoint needs review',
-            'message' => "{$name} — {$cp->status_label} at {$cp->site?->name} ({$cp->reference})"
-                .($cp->result_label ? ': '.$cp->result_label : '').'.',
-            'url' => route('checkpoints.results.show', $cp),
+            'title' => 'Checkpoint expired — follow-up needed',
+            'message' => "{$c->name} at {$c->site?->name}: {$this->nonCompliant} employee(s) did not complete the checkpoint by "
+                .$c->expires_at?->format('g:i A').'.',
+            'url' => route('checkpoints.show', $c),
         ];
     }
 }

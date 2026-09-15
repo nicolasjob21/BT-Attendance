@@ -9,9 +9,9 @@ class CheckpointSettings
 {
     public const KEY_DEFAULTS = 'checkpoints.defaults';
 
-    public const KEY_INSTRUCTIONS = 'checkpoints.photo_instructions';
+    public const KEY_INSTRUCTIONS = 'checkpoints.instructions';
 
-    /** @return array{checkpoints_per_day:int, minimum_interval_minutes:int, maximum_interval_minutes:int, response_window_minutes:int} */
+    /** @return array{response_window_minutes:int} */
     public function defaults(): array
     {
         $saved = (array) Setting::get(self::KEY_DEFAULTS, []);
@@ -20,10 +20,10 @@ class CheckpointSettings
     }
 
     /** @return list<string> */
-    public function photoInstructions(): array
+    public function instructions(): array
     {
         $saved = Setting::get(self::KEY_INSTRUCTIONS);
-        $list = is_array($saved) && $saved !== [] ? $saved : config('checkpoints.photo_instructions', []);
+        $list = is_array($saved) && $saved !== [] ? $saved : config('checkpoints.instructions', []);
 
         return array_values(array_unique(array_filter(array_map(fn ($s) => trim((string) $s), $list))));
     }
