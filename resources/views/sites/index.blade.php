@@ -3,7 +3,7 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Attendance Locations</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
         @if(session('status'))
             <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">
                 {{ session('status') }}
@@ -24,7 +24,7 @@
                     <a href="{{ route('sites.index') }}" class="text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
                 @endif
             </form>
-            <a href="{{ route('sites.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-center text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">+ Add Location</a>
+            <a href="{{ route('sites.create') }}" class="btn-app btn-md btn-brand">+ Add Location</a>
         </div>
 
         <p class="text-xs text-gray-500 dark:text-slate-400">
@@ -50,9 +50,9 @@
                         @forelse($sites as $site)
                             @php
                                 $typeClass = match ($site->type) {
-                                    'office' => 'bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200',
-                                    'temporary' => 'bg-accent-100 text-accent-800 dark:bg-accent-900/40 dark:text-accent-200',
-                                    default => 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+                                    'office' => 'badge-info',
+                                    'temporary' => 'badge-warn',
+                                    default => 'badge-neutral',
                                 };
                                 $typeShort = ['office' => 'Main office', 'project_site' => 'Project site', 'temporary' => 'Temporary'][$site->type] ?? $site->type_label;
                                 $dimmed = $site->status !== 'active';
@@ -78,21 +78,22 @@
                                     </div>
                                 </td>
                                 <td data-label="Type" class="px-4 py-3.5 whitespace-nowrap">
-                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ $typeClass }}">{{ $typeShort }}</span>
+                                    <span class="badge {{ $typeClass }}">{{ $typeShort }}</span>
                                 </td>
                                 <td data-label="Geofence" class="px-4 py-3.5 whitespace-nowrap tabular-nums">
-                                    <span class="font-medium {{ $dimmed ? '' : 'text-gray-900 dark:text-slate-100' }}">{{ number_format($site->geofence_radius_m) }} m</span>
-                                    <a href="https://www.google.com/maps?q={{ $site->latitude }},{{ $site->longitude }}" target="_blank" rel="noopener"
-                                       class="ml-2 inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-300">
-                                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-                                        map
-                                    </a>
+                                    <div class="row-actions justify-start">
+                                        <span class="inline-flex h-8 items-center font-medium {{ $dimmed ? '' : 'text-gray-900 dark:text-slate-100' }}">{{ number_format($site->geofence_radius_m) }} m</span>
+                                        <a href="https://www.google.com/maps?q={{ $site->latitude }},{{ $site->longitude }}" target="_blank" rel="noopener" class="is-primary" title="Open in Google Maps">
+                                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
+                                            Map
+                                        </a>
+                                    </div>
                                 </td>
                                 <td data-label="Window" class="px-4 py-3.5 whitespace-nowrap text-xs">
                                     @if($site->active_from || $site->active_until)
                                         <span class="{{ $dimmed ? '' : 'text-gray-700 dark:text-slate-200' }}">{{ $site->active_from?->format('M j, Y') ?? '…' }} → {{ $site->active_until?->format('M j, Y') ?? 'open' }}</span>
                                         @if($site->status === 'active' && ! $site->isActiveOn())
-                                            <span class="ml-1 rounded-full bg-accent-100 px-1.5 py-0.5 text-[10px] font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">outside window</span>
+                                            <span class="badge badge-danger ml-1">outside window</span>
                                         @endif
                                     @else
                                         <span class="text-gray-400 dark:text-slate-500">Always</span>
@@ -108,29 +109,30 @@
                                 </td>
                                 <td data-label="Status" class="px-4 py-3.5 whitespace-nowrap"><x-status-badge :status="$site->status" /></td>
                                 <td data-label="Actions" class="px-4 py-3.5 whitespace-nowrap">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <a href="{{ route('sites.edit', $site) }}"
-                                           class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Edit</a>
+                                    <div class="flex justify-end">
+                                    <div class="row-actions">
+                                        <a href="{{ route('sites.edit', $site) }}" class="is-primary">Edit</a>
                                         @if($site->status === 'active')
                                             @unless($site->isOffice())
                                                 <form method="POST" action="{{ route('sites.status', $site) }}" onsubmit="return confirm('Mark {{ addslashes($site->name) }} as completed? Its geofence closes for new punches and active assignments to it are ended.')">
                                                     @csrf @method('PATCH')
                                                     <input type="hidden" name="status" value="completed">
-                                                    <button class="rounded-xs px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10">Complete</button>
+                                                    <button class="is-primary">Complete</button>
                                                 </form>
                                             @endunless
                                             <form method="POST" action="{{ route('sites.status', $site) }}" onsubmit="return confirm('Deactivate {{ addslashes($site->name) }}? Nobody will be able to clock in there until it is reactivated.')">
                                                 @csrf @method('PATCH')
                                                 <input type="hidden" name="status" value="inactive">
-                                                <button class="rounded-xs px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-900/30">Deactivate</button>
+                                                <button class="is-danger">Deactivate</button>
                                             </form>
                                         @else
                                             <form method="POST" action="{{ route('sites.status', $site) }}">
                                                 @csrf @method('PATCH')
                                                 <input type="hidden" name="status" value="active">
-                                                <button class="rounded-xs px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/30">Reactivate</button>
+                                                <button class="is-success">Reactivate</button>
                                             </form>
                                         @endif
+                                    </div>
                                     </div>
                                 </td>
                             </tr>

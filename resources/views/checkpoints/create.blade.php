@@ -10,9 +10,10 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">{{ $editing ? 'Edit Checkpoint' : 'Create Checkpoint' }}</h1>
     </x-slot>
+    <x-slot name="back">{{ $editing ? route('checkpoints.show', $campaign) : route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back</x-slot>
 
     <div class="mx-auto max-w-4xl space-y-4">
-        <a href="{{ $editing ? route('checkpoints.show', $campaign) : route('checkpoints.index') }}" class="text-sm text-brand-700 hover:underline dark:text-brand-300">← Back</a>
 
         @if($errors->any())
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">Please fix the highlighted fields.</div>
@@ -65,11 +66,11 @@
 
             <section class="card p-5">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h2 class="text-sm font-semibold text-gray-900 dark:text-slate-100">2 · Employees included <span class="ml-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-800 dark:bg-brand-900/40 dark:text-brand-200" x-text="selected.length + ' selected'"></span></h2>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-slate-100">2 · Employees included <span class="badge badge-info ml-1" x-text="selected.length + ' selected'"></span></h2>
                     <div class="flex flex-wrap gap-1.5 text-xs">
-                        <button type="button" @click="selectAssigned()" :disabled="!siteId" class="rounded-xs border border-brand-300 px-2.5 py-1 font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-40 dark:border-brand-500/40 dark:text-brand-300">Assigned to this site</button>
-                        <button type="button" @click="selectVisible()" class="rounded-xs border border-gray-300 px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200">Select shown</button>
-                        <button type="button" @click="selected = []" class="rounded-xs border border-gray-300 px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200">Clear</button>
+                        <button type="button" @click="selectAssigned()" :disabled="!siteId" class="btn-app btn-xs btn-outline-brand">Assigned to this site</button>
+                        <button type="button" @click="selectVisible()" class="btn-app btn-xs btn-secondary">Select shown</button>
+                        <button type="button" @click="selected = []" class="btn-app btn-xs btn-secondary">Clear</button>
                     </div>
                 </div>
                 <input type="search" x-model="search" placeholder="Filter by name, number, or site…" class="mt-3 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600 sm:max-w-sm">
@@ -87,8 +88,8 @@
             </section>
 
             <div class="flex flex-wrap items-center justify-end gap-2">
-                <a href="{{ $editing ? route('checkpoints.show', $campaign) : route('checkpoints.index') }}" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Cancel</a>
-                <button type="submit" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-5 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">{{ $editing ? 'Save changes' : 'Save & review employees' }}</button>
+                <a href="{{ $editing ? route('checkpoints.show', $campaign) : route('checkpoints.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
+                <button type="submit" class="btn-app btn-md btn-brand px-5">{{ $editing ? 'Save changes' : 'Save & review employees' }}</button>
             </div>
             <p class="text-right text-xs text-gray-500 dark:text-slate-400">Saved as a draft. On the next page you review the employee list, then <strong>activate now</strong> or <strong>set a start time</strong>.</p>
         </form>

@@ -6,6 +6,7 @@ use App\Models\ContributionRate;
 use App\Models\Employee;
 use App\Models\PayrollItem;
 use App\Models\PayrollPeriod;
+use App\Services\Payroll\PayrollRates;
 use Carbon\CarbonPeriod;
 
 /**
@@ -18,14 +19,20 @@ use Carbon\CarbonPeriod;
  */
 class PayrollCalculator
 {
-    public function calculate(Employee $employee, PayrollPeriod $period): PayrollItem
+    public function calculate(Employee $employee, PayrollPeriod $period, bool $force = false): PayrollItem
     {
-        $monthly = (float) $employee->monthly_salary;
-        $daily = (float) $employee->daily_rate ?: ($monthly / 22);
-        $hourly = $daily / 8;
+        // A line HR edited by hand is never silently overwritten by a (re)run.
+        $existing = PayrollItem::where('employee_id', $employee->id)->where('payroll_period_id', $period->id)->first();
+        if ($existing && $existing->isAdjusted() && ! $force) {
+            return $existing;
+        }
 
-        // Semi-monthly base pay is half the monthly salary.
-        $basicPay = round($monthly / 2, 2);
+        $monthly = (float) $employee->monthly_salary;
+        $daily = (float) $employee->daily_rate ?: ($monthly / max(1, PayrollRates::get('working_days_per_month')));
+        $hourly = $daily / max(1, PayrollRates::get('hours_per_day'));
+
+        // Base pay per cutoff is a percentage of the monthly salary (50% = semi-monthly).
+        $basicPay = round($monthly * PayrollRates::get('basic_cutoff_percent') / 100, 2);
 
         // ---- attendance: expected vs worked days (fixed-schedule staff only) ----
         $expectedDays = $this->workingDays($period);
@@ -97,13 +104,27 @@ class PayrollCalculator
         $philhealth = $this->contribution('philhealth', $monthly, $year, $cutoff);
         $pagibig = $this->contribution('pagibig', $monthly, $year, $cutoff);
 
-        $grossPay = round($basicPay + $overtimePay, 2);
-        $totalDeductions = round($absencesDeduction + $halfDayDeduction + $sss + $philhealth + $pagibig, 2);
+        // Allowance: the company-wide % of basic pay, or whatever HR typed on the line.
+        $allowancePct = PayrollRates::get('allowance_percent');
+        $allowances = $allowancePct > 0 ? round($basicPay * $allowancePct / 100, 2) : (float) ($existing?->allowances ?? 0);
+        $otherDeductions = (float) ($existing?->other_deductions ?? 0);
+
+        $grossPay = round($basicPay + $overtimePay + $allowances, 2);
+
+        // Withholding tax: flat % of pay after government contributions.
+        $taxable = max(0, $grossPay - $sss - $philhealth - $pagibig);
+        $withholdingTax = round($taxable * PayrollRates::get('withholding_tax_percent') / 100, 2);
+
+        $totalDeductions = round($absencesDeduction + $halfDayDeduction + $sss + $philhealth + $pagibig + $withholdingTax + $otherDeductions, 2);
         $netPay = round($grossPay - $totalDeductions, 2);
 
         return PayrollItem::updateOrCreate(
             ['employee_id' => $employee->id, 'payroll_period_id' => $period->id],
             [
+                'adjusted_at' => null,
+                'adjusted_by' => null,
+                'allowances' => $allowances,
+                'other_deductions' => $otherDeductions,
                 'basic_pay' => $basicPay,
                 'overtime_pay' => $overtimePay,
                 'night_diff_pay' => 0,
@@ -115,7 +136,7 @@ class PayrollCalculator
                 'sss_deduction' => $sss,
                 'philhealth_deduction' => $philhealth,
                 'pagibig_deduction' => $pagibig,
-                'withholding_tax' => 0,
+                'withholding_tax' => $withholdingTax,
                 'total_deductions' => $totalDeductions,
                 'net_pay' => $netPay,
             ]
@@ -145,7 +166,7 @@ class PayrollCalculator
         // Pag-IBIG employee share is capped at ₱200 per MONTH. Cap before the
         // split so each cutoff carries ₱100 (not ₱200 each = ₱400/month).
         if ($type === 'pagibig') {
-            $monthlyShare = min($monthlyShare, 200.0);
+            $monthlyShare = min($monthlyShare, PayrollRates::get('pagibig_monthly_cap'));
         }
 
         // Deduct 50% on the 15th cutoff; the end-of-month cutoff takes the

@@ -189,7 +189,8 @@ class CheckpointDemoSeeder extends Seeder
         $out = [];
         foreach (self::DEMO_PEOPLE as [$first, $last, $email]) {
             $user = User::firstOrCreate(['email' => $email], [
-                'name' => "$first $last", 'password' => Hash::make('password'), 'email_verified_at' => now(),
+                'name' => "$first $last", 'username' => User::suggestUsername($first),
+                'password' => Hash::make('password'), 'email_verified_at' => now(),
             ]);
             if (! $user->hasRole('employee')) {
                 $user->assignRole('employee');

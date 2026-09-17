@@ -11,9 +11,12 @@ use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\PayrollRatesController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectAssignmentController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SiteController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -27,29 +30,41 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/notifications/{id}', [NotificationController::class, 'open'])->name('notifications.open');
     Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 
-    // --- Self-service (all authenticated staff) ---
-    Route::get('/attendance', [AttendanceController::class, 'create'])->name('attendance.create');
-    Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
-    Route::get('/attendance/logs', [AttendanceController::class, 'index'])->name('attendance.index');
+    // --- Self-service (roles with attendance: Admin, Developer, Employee — not Superadmin) ---
+    Route::middleware('permission:clock attendance')->group(function () {
+        Route::get('/attendance', [AttendanceController::class, 'create'])->name('attendance.create');
+        Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
+        Route::get('/attendance/logs', [AttendanceController::class, 'index'])->name('attendance.index');
+    });
+    // Softcopy and timesheet: own records, or anyone's with `view team reports` (checked in the controller).
     Route::get('/attendance/{id}/softcopy/{type}', [AttendanceController::class, 'softCopy'])
         ->whereIn('type', ['in', 'out'])->name('attendance.softcopy');
-    // Monthly timesheet for one employee (own, or anyone's with `view team reports`).
     Route::get('/attendance/timesheet/{employee}', [AttendanceController::class, 'timesheet'])->name('attendance.timesheet');
 
     // --- Attendance monitor: everyone's time in/out by date (Dept. Head, HR, Admin) ---
     Route::get('/attendance/monitor', [AttendanceController::class, 'monitor'])
         ->middleware('permission:view team reports')->name('attendance.monitor');
 
-    Route::get('/leave', [LeaveController::class, 'index'])->name('leave.index');
-    Route::get('/leave/create', [LeaveController::class, 'create'])->name('leave.create');
-    Route::post('/leave', [LeaveController::class, 'store'])->name('leave.store');
-    Route::get('/leave/early', [LeaveController::class, 'earlyCreate'])->name('leave.early.create');
-    Route::post('/leave/early', [LeaveController::class, 'earlyStore'])->name('leave.early.store');
+    // Leave and overtime lists double as the approval queue, so approvers get in too.
+    Route::middleware('permission:request leave|approve requests')->group(function () {
+        Route::get('/leave', [LeaveController::class, 'index'])->name('leave.index');
+    });
+    Route::middleware('permission:request leave')->group(function () {
+        Route::get('/leave/create', [LeaveController::class, 'create'])->name('leave.create');
+        Route::post('/leave', [LeaveController::class, 'store'])->name('leave.store');
+        Route::get('/leave/early', [LeaveController::class, 'earlyCreate'])->name('leave.early.create');
+        Route::post('/leave/early', [LeaveController::class, 'earlyStore'])->name('leave.early.store');
+    });
 
-    Route::get('/overtime', [OvertimeController::class, 'index'])->name('overtime.index');
-    Route::get('/overtime/create', [OvertimeController::class, 'create'])->name('overtime.create');
-    Route::post('/overtime', [OvertimeController::class, 'store'])->name('overtime.store');
+    Route::middleware('permission:request overtime|approve requests')->group(function () {
+        Route::get('/overtime', [OvertimeController::class, 'index'])->name('overtime.index');
+    });
+    Route::middleware('permission:request overtime')->group(function () {
+        Route::get('/overtime/create', [OvertimeController::class, 'create'])->name('overtime.create');
+        Route::post('/overtime', [OvertimeController::class, 'store'])->name('overtime.store');
+    });
 
+    // Own payslip, or anyone's with `view all payslips` / `run payroll` (checked in the controller).
     Route::get('/payroll/item/{item}', [PayrollController::class, 'show'])->name('payroll.show');
 
     // --- Approvals (Dept. Head, HR, Admin) ---
@@ -72,6 +87,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store');
         Route::get('/employees/import', [EmployeeController::class, 'importForm'])->name('employees.import');
         Route::get('/employees/import/template', [EmployeeController::class, 'importTemplate'])->name('employees.import.template');
+        Route::get('/employees/export', [EmployeeController::class, 'export'])
+            ->middleware('permission:export employees')->name('employees.export');
         Route::post('/employees/import', [EmployeeController::class, 'import'])->name('employees.import.store');
         Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit');
         Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
@@ -82,8 +99,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::patch('/employees/{employee}/assignments/{assignment}/end', [ProjectAssignmentController::class, 'end'])->name('employees.assignments.end');
     });
 
-    // --- Settings: attendance locations / geofences (HR, Admin) ---
-    Route::middleware('permission:manage settings')->group(function () {
+    // --- Roles & permissions (registered before /users/{user} so "roles" is not read as an id) ---
+    Route::middleware('permission:manage roles')->group(function () {
+        Route::get('/users/roles', [RoleController::class, 'index'])->name('roles.index');
+        Route::put('/users/roles', [RoleController::class, 'update'])->name('roles.update');
+        Route::post('/users/roles/reset', [RoleController::class, 'reset'])->name('roles.reset');
+    });
+
+    // --- User management: login accounts, roles, live presence (Super Admin, Developer) ---
+    Route::middleware('permission:manage users')->group(function () {
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::get('/users/presence', [UserController::class, 'presence'])->name('users.presence');
+        Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
+        Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::patch('/users/{user}/disabled', [UserController::class, 'toggleDisabled'])->name('users.disabled');
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        Route::post('/users/{id}/restore', [UserController::class, 'restore'])->name('users.restore');
+    });
+
+    // --- Payroll rates: the company-wide percentages behind everyone's payroll ---
+    Route::middleware('permission:manage payroll rates')->group(function () {
+        Route::get('/payroll/rates', [PayrollRatesController::class, 'index'])->name('payroll.rates');
+        Route::put('/payroll/rates', [PayrollRatesController::class, 'update'])->name('payroll.rates.update');
+    });
+
+    // --- Settings: attendance locations / geofences (Admin, Developer) ---
+    Route::middleware('permission:manage settings|manage sites')->group(function () {
         Route::get('/settings/sites', [SiteController::class, 'index'])->name('sites.index');
         Route::get('/settings/sites/create', [SiteController::class, 'create'])->name('sites.create');
         Route::post('/settings/sites', [SiteController::class, 'store'])->name('sites.store');
@@ -96,16 +137,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('permission:run payroll')->group(function () {
         Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');
         Route::post('/payroll/{period}/generate', [PayrollController::class, 'generate'])->name('payroll.generate');
+        Route::post('/payroll/periods', [PayrollController::class, 'createPeriod'])->name('payroll.periods.create');
+        Route::post('/payroll/{period}/close', [PayrollController::class, 'close'])->name('payroll.close');
+        Route::put('/payroll/settings', [PayrollController::class, 'updateSettings'])->name('payroll.settings');
+        Route::get('/payroll/lines/{item}/edit', [PayrollController::class, 'edit'])->name('payroll.lines.edit');
+        Route::put('/payroll/lines/{item}', [PayrollController::class, 'update'])->name('payroll.lines.update');
+        Route::post('/payroll/lines/{item}/reset', [PayrollController::class, 'reset'])->name('payroll.lines.reset');
         Route::get('/employees/{employee}/salary-history', [PayrollController::class, 'salaryHistory'])->name('employees.salary-history');
     });
 
-    // --- Check Point: employee side (respond to the shared checkpoint) ---
-    Route::get('/my-checkpoints', [EmployeeCheckpointController::class, 'index'])->name('my-checkpoints.index');
-    Route::get('/my-checkpoints/active', [EmployeeCheckpointController::class, 'active'])->name('my-checkpoints.active');
-    Route::get('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'show'])->name('my-checkpoints.show');
-    Route::post('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'submit'])->name('my-checkpoints.submit');
-    Route::post('/my-checkpoints/{checkpoint}/issue', [EmployeeCheckpointController::class, 'reportIssue'])->name('my-checkpoints.issue');
-    Route::post('/my-checkpoints/{checkpoint}/explain', [EmployeeCheckpointController::class, 'explain'])->name('my-checkpoints.explain');
+    // --- Check Point: employee side (respond to the shared checkpoint) — same roles that clock in ---
+    Route::middleware('permission:clock attendance')->group(function () {
+        Route::get('/my-checkpoints', [EmployeeCheckpointController::class, 'index'])->name('my-checkpoints.index');
+        Route::get('/my-checkpoints/active', [EmployeeCheckpointController::class, 'active'])->name('my-checkpoints.active');
+        Route::get('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'show'])->name('my-checkpoints.show');
+        Route::post('/my-checkpoints/{checkpoint}', [EmployeeCheckpointController::class, 'submit'])->name('my-checkpoints.submit');
+        Route::post('/my-checkpoints/{checkpoint}/issue', [EmployeeCheckpointController::class, 'reportIssue'])->name('my-checkpoints.issue');
+        Route::post('/my-checkpoints/{checkpoint}/explain', [EmployeeCheckpointController::class, 'explain'])->name('my-checkpoints.explain');
+    });
     // Private checkpoint photo: owner or anyone with `view checkpoint results` (checked in the controller).
     Route::get('/checkpoint-photos/{checkpoint}', [CheckpointResultController::class, 'photo'])->name('checkpoints.photo');
 
@@ -129,6 +178,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::middleware('permission:activate checkpoint campaign')->group(function () {
             Route::post('/campaigns/{campaign}/activate', [CheckpointCampaignController::class, 'activate'])->name('activate');
             Route::post('/campaigns/{campaign}/schedule', [CheckpointCampaignController::class, 'schedule'])->name('schedule');
+            Route::post('/campaigns/{campaign}/schedule-random', [CheckpointCampaignController::class, 'scheduleRandom'])->name('schedule-random');
         });
         Route::middleware('permission:pause checkpoint campaign')->group(function () {
             Route::post('/campaigns/{campaign}/pause', [CheckpointCampaignController::class, 'pause'])->name('pause');

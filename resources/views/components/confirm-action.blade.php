@@ -20,21 +20,21 @@
 
 @php
 $btn = match ($tone) {
-    'emerald' => 'bg-emerald-600 text-white hover:bg-emerald-700',
-    'amber' => 'bg-amber-500 text-white hover:bg-amber-600',
-    'rose' => 'bg-rose-600 text-white hover:bg-rose-700',
-    default => 'bg-linear-to-r from-brand-600 to-accent-500 text-white hover:from-brand-700 hover:to-accent-600',
+    'emerald' => 'btn-success',
+    'amber' => 'btn-outline-warn',
+    'rose' => 'btn-danger',
+    default => 'btn-brand',
 };
 $trigger = match ($tone) {
-    'emerald' => 'border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/30',
-    'amber' => 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30',
-    'rose' => 'border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30',
-    default => 'border-brand-300 text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10',
+    'emerald' => 'btn-outline-success',
+    'amber' => 'btn-outline-warn',
+    'rose' => 'btn-outline-danger',
+    default => 'btn-outline-brand',
 };
-$pad = $size === 'md' ? 'px-4 py-2 text-sm' : 'px-2.5 py-1 text-xs';
+$sizeClass = $size === 'md' ? 'btn-md' : 'btn-xs';
 $triggerClasses = $variant === 'primary'
-    ? "rounded-xs font-semibold text-white bg-linear-to-r from-brand-600 to-accent-500 hover:from-brand-700 hover:to-accent-600 {$pad}"
-    : "rounded-xs border font-medium {$pad} {$trigger}";
+    ? "btn-app {$sizeClass} btn-brand"
+    : "btn-app {$sizeClass} {$trigger}";
 @endphp
 
 <div x-data="{ open: false }" class="inline-block">
@@ -56,8 +56,8 @@ $triggerClasses = $variant === 'primary'
                 @endif
                 <div class="mt-4 flex justify-end gap-2">
                     <button type="button" @click="open = false"
-                            class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Cancel</button>
-                    <button type="submit" class="rounded-xs px-4 py-2 text-sm font-semibold {{ $btn }}">{{ $button }}</button>
+                            class="btn-app btn-md btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-app btn-md {{ $btn }}">{{ $button }}</button>
                 </div>
             </form>
         </div>

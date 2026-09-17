@@ -12,3 +12,7 @@ Artisan::command('inspire', function () {
 // ones as missed. Needs `php artisan schedule:work` (or a cron running
 // `schedule:run` every minute) in production.
 Schedule::command('checkpoints:tick')->everyMinute()->withoutOverlapping();
+
+// Payroll: keep the semi-monthly periods rolling and, when the Super Admin has
+// switched automation on, generate payroll the day after a cutoff ends.
+Schedule::command('payroll:tick')->dailyAt('01:00')->withoutOverlapping();

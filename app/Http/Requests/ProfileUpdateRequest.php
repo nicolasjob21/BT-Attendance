@@ -18,6 +18,13 @@ class ProfileUpdateRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
+            'username' => [
+                'required',
+                'string',
+                'max:60',
+                'regex:'.User::USERNAME_PATTERN,
+                Rule::unique(User::class)->ignore($this->user()->id),
+            ],
             'email' => [
                 'required',
                 'string',
@@ -28,5 +35,11 @@ class ProfileUpdateRequest extends FormRequest
             ],
             'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ];
+    }
+
+    /** Usernames are stored lowercase; accept "Brite-Juan" as "brite-juan". */
+    protected function prepareForValidation(): void
+    {
+        $this->merge(['username' => User::normalizeUsername($this->input('username'))]);
     }
 }

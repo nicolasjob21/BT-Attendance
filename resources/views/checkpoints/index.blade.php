@@ -3,10 +3,7 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-6">
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
+    <div class="page space-y-6">
 
         <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <p class="max-w-2xl text-sm text-gray-500 dark:text-slate-400">
@@ -14,15 +11,15 @@
             </p>
             <div class="flex flex-wrap gap-2">
                 @can('view checkpoint results')
-                    <a href="{{ route('checkpoints.results.index') }}" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">All responses</a>
+                    <a href="{{ route('checkpoints.results.index') }}" class="btn-app btn-md btn-secondary">All responses</a>
                 @endcan
-                <a href="{{ route('checkpoints.daily') }}" class="rounded-xs border border-brand-300 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10">Daily monitor</a>
-                <a href="{{ route('checkpoints.history') }}" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">History</a>
+                <a href="{{ route('checkpoints.daily') }}" class="btn-app btn-md btn-outline-brand">Daily monitor</a>
+                <a href="{{ route('checkpoints.history') }}" class="btn-app btn-md btn-secondary">History</a>
                 @can('manage checkpoint settings')
-                    <a href="{{ route('checkpoints.settings') }}" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Settings</a>
+                    <a href="{{ route('checkpoints.settings') }}" class="btn-app btn-md btn-secondary">Settings</a>
                 @endcan
                 @can('create checkpoint campaign')
-                    <a href="{{ route('checkpoints.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-center text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">+ Create Checkpoint</a>
+                    <a href="{{ route('checkpoints.create') }}" class="btn-app btn-md btn-brand">+ Create Checkpoint</a>
                 @endcan
             </div>
         </div>
@@ -92,7 +89,7 @@
                         </div>
                         <x-checkpoint-status-badge :checkpoint="$cp" />
                         @can('view checkpoint results')
-                            <a href="{{ route('checkpoints.results.show', $cp) }}" class="rounded-xs border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30">Follow up</a>
+                            <a href="{{ route('checkpoints.results.show', $cp) }}" class="btn-app btn-xs btn-outline-warn">Follow up</a>
                         @endcan
                     </li>
                 @empty

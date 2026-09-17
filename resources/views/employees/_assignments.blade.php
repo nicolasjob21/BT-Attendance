@@ -9,13 +9,13 @@
         </div>
         <div class="text-sm">
             @if($activeAssignment)
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 font-medium text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">
+                <span class="badge badge-info">
                     <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
                     {{ $activeAssignment->site->name }}
                 </span>
                 <span class="ml-1 text-xs text-gray-500 dark:text-slate-400">since {{ $activeAssignment->start_date->format('M j, Y') }}@if($activeAssignment->end_date) · until {{ $activeAssignment->end_date->format('M j, Y') }}@endif</span>
             @else
-                <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">Office / unassigned</span>
+                <span class="badge badge-neutral">Office / unassigned</span>
             @endif
         </div>
     </div>
@@ -44,7 +44,7 @@
                    class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
             @error('start_date') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
         </div>
-        <button class="rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">{{ $activeAssignment ? 'Reassign' : 'Assign' }}</button>
+        <button class="btn-app btn-md btn-dark">{{ $activeAssignment ? 'Reassign' : 'Assign' }}</button>
         <div class="sm:col-span-3">
             <input type="text" name="assignment_notes" value="{{ old('assignment_notes') }}" maxlength="500" placeholder="Notes (optional) — e.g. site foreman, expected 3 weeks"
                    class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">

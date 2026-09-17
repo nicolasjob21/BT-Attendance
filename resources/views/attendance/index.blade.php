@@ -3,13 +3,13 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">My Attendance</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
         {{-- Immediate download prompt right after a successful Time In / Time Out --}}
         @if(session('softcopy_log_id'))
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-900/30">
                 <p class="text-sm text-emerald-800 dark:text-emerald-200">Your proof-of-attendance soft copy is ready — keep it for your records.</p>
                 <a href="{{ route('attendance.softcopy', ['id' => session('softcopy_log_id'), 'type' => session('softcopy_type')]) }}"
-                   class="inline-flex items-center gap-2 rounded-xs bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                   class="btn-app btn-md btn-success">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
                     Download Soft Copy
                 </a>
@@ -18,7 +18,7 @@
 
         <div class="flex flex-wrap items-center justify-end gap-3">
             <a href="{{ route('attendance.timesheet', auth()->user()->employee) }}" class="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">Monthly timesheet</a>
-            <a href="{{ route('attendance.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">Clock In / Out</a>
+            <a href="{{ route('attendance.create') }}" class="btn-app btn-md btn-brand">Clock In / Out</a>
         </div>
 
         <div class="overflow-hidden card">
@@ -50,11 +50,11 @@
                                     <div class="text-gray-500 dark:text-slate-400">{{ $log->logged_at->format('g:i A') }}</div>
                                 </td>
                                 <td data-label="Type" class="px-4 py-3">
-                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ $log->log_type === 'time_in' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700' }}">
+                                    <span class="badge {{ $log->log_type === 'time_in' ? 'badge-success' : 'badge-neutral' }}">
                                         {{ $log->log_type === 'time_in' ? 'Time In' : 'Time Out' }}
                                     </span>
                                     @if($log->synced_offline)
-                                        <span class="ml-1 inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">offline</span>
+                                        <span class="badge badge-info ml-1">offline</span>
                                     @endif
                                 </td>
                                 <td data-label="Location" class="px-4 py-3">

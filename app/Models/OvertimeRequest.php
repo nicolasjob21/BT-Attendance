@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Payroll\PayrollRates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -42,7 +43,7 @@ class OvertimeRequest extends Model
 
     public function multiplier(): float
     {
-        return self::MULTIPLIERS[$this->ot_type] ?? 1.25;
+        return PayrollRates::otMultiplier($this->ot_type ?? 'regular');
     }
 
     /**
@@ -66,7 +67,7 @@ class OvertimeRequest extends Model
             return null;
         }
 
-        return Carbon::parse($this->planned_start)->format('g:i A') . ' – ' . Carbon::parse($this->planned_end)->format('g:i A');
+        return Carbon::parse($this->planned_start)->format('g:i A').' – '.Carbon::parse($this->planned_end)->format('g:i A');
     }
 
     /**
@@ -78,11 +79,11 @@ class OvertimeRequest extends Model
     {
         $d = $this->ot_date;
         if ($d->day <= 15) {
-            return $d->copy()->day(16)->format('M j') . ' – ' . $d->copy()->endOfMonth()->format('M j') . ' payroll';
+            return $d->copy()->day(16)->format('M j').' – '.$d->copy()->endOfMonth()->format('M j').' payroll';
         }
         $next = $d->copy()->addMonthNoOverflow();
 
-        return $next->copy()->day(1)->format('M j') . ' – ' . $next->copy()->day(15)->format('M j') . ' payroll';
+        return $next->copy()->day(1)->format('M j').' – '.$next->copy()->day(15)->format('M j').' payroll';
     }
 
     /** True once the OT date has passed (or is today) and actual hours can be derived. */

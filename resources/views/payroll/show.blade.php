@@ -2,11 +2,12 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Payslip</h1>
     </x-slot>
+    <x-slot name="back">{{ url()->previous() }}</x-slot>
+    <x-slot name="backLabel">Back</x-slot>
 
     <div class="mx-auto max-w-2xl space-y-4">
         <div class="flex justify-between print:hidden">
-            <a href="{{ url()->previous() }}" class="text-sm font-medium text-gray-600 dark:text-slate-300 hover:underline">&larr; Back</a>
-            <button onclick="window.print()" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Print / Save PDF</button>
+            <button onclick="window.print()" class="btn-app btn-md btn-secondary">Print / Save PDF</button>
         </div>
 
         <div class="card p-8">

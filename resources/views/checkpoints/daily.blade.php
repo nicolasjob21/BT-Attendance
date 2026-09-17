@@ -7,8 +7,10 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · Daily monitor</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Check Point</x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-5">
+    <div class="page space-y-5">
         {{-- Day / site filter --}}
         <form method="GET" class="card flex flex-col gap-3 p-3 sm:flex-row sm:flex-wrap sm:items-center">
             <div class="flex items-center gap-1">

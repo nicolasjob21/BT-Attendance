@@ -161,7 +161,7 @@ class CheckpointModuleTest extends TestCase
 
         // Monitoring page shows the shared times and both tables.
         $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()
-            ->assertSee('2:30 PM')->assertSee('2:40 PM')->assertSee('Completed employees')->assertSee('Pending employees');
+            ->assertSee('2:30 PM')->assertSee('2:40 PM')->assertSee('Employees who completed the checkpoint')->assertSee('Employees who have not responded yet');
     }
 
     public function test_scheduled_start_is_activated_by_the_server_at_that_time(): void
@@ -187,6 +187,43 @@ class CheckpointModuleTest extends TestCase
         // Past-time scheduling is refused.
         $draft = $this->createDraft(['name' => 'Another']);
         $this->actingAs($this->hr)->post(route('checkpoints.schedule', $draft), ['scheduled_start_at' => '2026-09-15 10:00'])->assertSessionHasErrors('scheduled_start_at');
+    }
+
+    public function test_system_can_draw_a_random_start_time_the_admin_can_see(): void
+    {
+        // Test clock is 2026-09-15 14:30 (see setUp); window 13:00–17:00 with a 10-min response window, so the draw lands in 14:31–16:50.
+        $campaign = $this->createDraft();
+        $this->actingAs($this->hr)
+            ->post(route('checkpoints.schedule-random', $campaign), ['date' => '2026-09-15', 'window_start' => '13:00', 'window_end' => '17:00'])
+            ->assertRedirect()->assertSessionHas('status');
+
+        $campaign->refresh();
+        $this->assertTrue($campaign->isScheduled());
+        $this->assertTrue($campaign->isRandomlyScheduled());
+        $this->assertSame('1:00 PM – 5:00 PM', $campaign->randomWindowLabel());
+        $this->assertTrue($campaign->scheduled_start_at->between(Carbon::parse('2026-09-15 13:00'), Carbon::parse('2026-09-15 16:50')));
+        $this->assertSame(0, $campaign->checkpoints()->count(), 'Nothing opens until the drawn time');
+
+        // The admin can see the drawn time on the campaign page; the employee's notification has not been sent.
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))
+            ->assertOk()->assertSee('Checkpoint fires at')->assertSee($campaign->scheduled_start_at->format('g:i A'))->assertSee('System-generated');
+        Notification::assertNothingSent();
+
+        // The server fires it at that time like any scheduled campaign.
+        Carbon::setTestNow($campaign->scheduled_start_at->copy()->addSeconds(5));
+        app(CheckpointDispatcher::class)->tick();
+        $this->assertSame(CheckpointCampaign::ACTIVE, $campaign->refresh()->status);
+        Notification::assertSentTo($this->techUser, CheckpointActivated::class);
+
+        // A window that cannot fit the response window is refused.
+        $draft = $this->createDraft(['name' => 'Too short']);
+        $this->actingAs($this->hr)
+            ->post(route('checkpoints.schedule-random', $draft), ['date' => '2026-09-15', 'window_start' => '13:00', 'window_end' => '13:05'])
+            ->assertSessionHasErrors('random_window');
+        // A window already in the past is refused too.
+        $this->actingAs($this->hr)
+            ->post(route('checkpoints.schedule-random', $draft), ['date' => '2026-09-15', 'window_start' => '08:00', 'window_end' => '09:00'])
+            ->assertSessionHasErrors('random_window');
     }
 
     public function test_active_endpoint_reports_the_shared_checkpoint_to_the_employee(): void

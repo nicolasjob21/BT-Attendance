@@ -2,6 +2,8 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Request Overtime</h1>
     </x-slot>
+    <x-slot name="back">{{ route('overtime.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Overtime</x-slot>
 
     <div class="mx-auto max-w-xl" x-data="otForm()">
         <form method="POST" action="{{ route('overtime.store') }}" class="space-y-5 card p-6">
@@ -58,9 +60,9 @@
             </div>
 
             <div class="flex justify-end gap-2">
-                <a href="{{ route('overtime.index') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Cancel</a>
+                <a href="{{ route('overtime.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
                 <button type="submit" :disabled="!valid()"
-                        class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600 disabled:cursor-not-allowed disabled:opacity-50">Send for approval</button>
+                        class="btn-app btn-md btn-brand disabled:cursor-not-allowed">Send for approval</button>
             </div>
         </form>
     </div>

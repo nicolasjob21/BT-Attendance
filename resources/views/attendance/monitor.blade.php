@@ -12,7 +12,7 @@
         $link = fn ($d) => route('attendance.monitor', array_filter(['date' => $d, 'search' => $search]));
     @endphp
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
 
         @if(session('status'))
             <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">
@@ -43,11 +43,11 @@
                 </div>
 
                 <a href="{{ $link(now()->toDateString()) }}"
-                   class="rounded-xs border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Today</a>
+                   class="btn-app btn-md btn-secondary">Today</a>
 
                 <input type="text" name="search" value="{{ $search }}" placeholder="Search employee…"
                        class="min-w-[160px] flex-1 rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
-                <button class="rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">Filter</button>
+                <button class="btn-app btn-md btn-dark">Filter</button>
                 @if($search)
                     <a href="{{ $link($date) }}" class="text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
                 @endif
@@ -55,15 +55,15 @@
 
             {{-- Summary --}}
             <div class="flex items-center gap-2 text-xs">
-                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">{{ $present }} {{ $isRestDay ? 'worked' : 'present' }}</span>
-                <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-600 dark:bg-slate-700 dark:text-slate-300">{{ $absent }} {{ $isRestDay ? 'day off' : 'absent' }}</span>
+                <span class="badge badge-success">{{ $present }} {{ $isRestDay ? 'worked' : 'present' }}</span>
+                <span class="badge badge-neutral">{{ $absent }} {{ $isRestDay ? 'day off' : 'absent' }}</span>
             </div>
         </div>
 
         <p class="text-xs text-gray-500 dark:text-slate-400">
             Showing {{ $day->isToday() ? 'today' : $day->format('l, F j, Y') }} · {{ $rows->count() }} employee(s)
             @if($isRestDay)
-                <span class="ml-1 inline-flex items-center rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">Rest day — day off; anyone on site is on rest-day OT (130%)</span>
+                <span class="badge badge-danger ml-1">Rest day — day off; anyone on site is on rest-day OT (130%)</span>
             @endif
         </p>
 
@@ -149,23 +149,23 @@
                                     <div class="flex flex-col items-end gap-1.5 sm:items-start">
                                         <div class="flex flex-wrap items-center justify-end gap-1 sm:justify-start">
                                             @if($status === 'complete')
-                                                <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Present</span>
+                                                <span class="badge badge-success">Present</span>
                                             @elseif($status === 'incomplete')
-                                                <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">No time out</span>
+                                                <span class="badge badge-warn">No time out</span>
                                             @elseif($isRestDay)
-                                                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-400 dark:bg-slate-700 dark:text-slate-400">Day off</span>
+                                                <span class="badge badge-muted">Day off</span>
                                             @else
-                                                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500 dark:bg-slate-700 dark:text-slate-300">Absent</span>
+                                                <span class="badge badge-muted">Absent</span>
                                             @endif
 
                                             @if($otMins > 0 && $status === 'complete')
-                                                <span class="inline-flex items-center rounded-full bg-accent-100 px-2.5 py-0.5 text-xs font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">{{ !empty($row['rest_day']) ? 'Rest-day OT' : 'Overtime' }}</span>
+                                                <span class="badge badge-danger">{{ !empty($row['rest_day']) ? 'Rest-day OT' : 'Overtime' }}</span>
                                             @endif
                                             @if(!empty($row['rest_day']) && $in)
                                                 @if($row['rest_day_request']?->status === 'approved')
-                                                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200" title="Approved rest-day work request">OT approved</span>
+                                                    <span class="badge badge-success" title="Approved rest-day work request">OT approved</span>
                                                 @elseif($row['rest_day_request'])
-                                                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">OT request pending</span>
+                                                    <span class="badge badge-warn">OT request pending</span>
                                                 @else
                                                     <a href="{{ route('overtime.index') }}" title="Weekend work is paid only through an approved rest-day OT request. The employee can still file it up to 3 days later."
                                                        class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 hover:underline dark:bg-rose-900/40 dark:text-rose-200">No OT request</a>
@@ -174,20 +174,20 @@
 
                                             @foreach($row['location_exceptions'] ?? [] as $ex)
                                                 @if($ex->location_verification_status === 'pending')
-                                                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Location pending</span>
+                                                    <span class="badge badge-warn">Location pending</span>
                                                 @elseif($ex->location_verification_status === null)
-                                                    <span class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Location exception</span>
+                                                    <span class="badge badge-danger">Location exception</span>
                                                 @endif
                                             @endforeach
 
                                             @if(!empty($row['needs_verification']))
                                                 @if($vstatus === 'approved')
-                                                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">OT verified</span>
+                                                    <span class="badge badge-success">OT verified</span>
                                                 @elseif($vstatus === 'rejected')
-                                                    <span class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">OT rejected</span>
+                                                    <span class="badge badge-danger">OT rejected</span>
                                                 @else
                                                     <span title="13h+ day — unusual. Needs HR sign-off before the overtime is trusted."
-                                                          class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Needs HR verification</span>
+                                                          class="badge badge-warn">Needs HR verification</span>
                                                 @endif
                                             @endif
                                         </div>
@@ -225,9 +225,9 @@
                                                                class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
                                                         <div class="flex gap-1.5">
                                                             <button name="decision" value="approved"
-                                                                    class="rounded-xs bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Approve location</button>
+                                                                    class="btn-app btn-xs btn-success">Approve location</button>
                                                             <button name="decision" value="rejected"
-                                                                    class="rounded-xs border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30">Reject</button>
+                                                                    class="btn-app btn-xs btn-outline-danger">Reject</button>
                                                         </div>
                                                     </form>
                                                 @endcan
@@ -257,9 +257,9 @@
                                                               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">{{ $row['verification_remarks'] }}</textarea>
                                                     <div class="flex gap-1.5">
                                                         <button name="decision" value="approved"
-                                                                class="rounded-xs bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Approve</button>
+                                                                class="btn-app btn-xs btn-success">Approve</button>
                                                         <button name="decision" value="rejected"
-                                                                class="rounded-xs border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30">Reject</button>
+                                                                class="btn-app btn-xs btn-outline-danger">Reject</button>
                                                     </div>
                                                 </form>
                                             @endcan

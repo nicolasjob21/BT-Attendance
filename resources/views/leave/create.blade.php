@@ -2,6 +2,8 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">File Leave</h1>
     </x-slot>
+    <x-slot name="back">{{ route('leave.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Leave</x-slot>
 
     <div class="mx-auto max-w-xl" x-data="{ portion: @js(old('day_portion', 'full')), get half() { return this.portion !== 'full' } }">
         <form method="POST" action="{{ route('leave.store') }}" class="space-y-5 card p-6">
@@ -57,8 +59,8 @@
             </div>
 
             <div class="flex justify-end gap-2">
-                <a href="{{ route('leave.index') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Cancel</a>
-                <button type="submit" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">Submit request</button>
+                <a href="{{ route('leave.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
+                <button type="submit" class="btn-app btn-md btn-brand">Submit request</button>
             </div>
         </form>
     </div>

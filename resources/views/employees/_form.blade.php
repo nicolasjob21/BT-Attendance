@@ -15,7 +15,15 @@
     </div>
 
     <div>
-        <label for="email" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Email (login)</label>
+        <label for="username" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Username (login)</label>
+        <input type="text" id="username" name="username" value="{{ old('username', $employee?->user?->username) }}"
+               placeholder="{{ \App\Models\User::USERNAME_PREFIX }}-firstname" autocapitalize="none" spellcheck="false"
+               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Company prefix + first name, e.g. <code>brite-juan</code>. Leave blank to generate it automatically.</p>
+        @error('username') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+    </div>
+    <div>
+        <label for="email" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Email</label>
         <input type="email" id="email" name="email" value="{{ old('email', $employee?->email) }}" required
                class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
         @error('email') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
@@ -35,15 +43,18 @@
         </select>
     </div>
     <div>
-        <label for="role" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">System role</label>
-        <select id="role" name="role" required
-                class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
-            @php $currentRole = old('role', $employee?->user?->getRoleNames()->first() ?? 'employee'); @endphp
-            @foreach($roles as $value => $label)
-                <option value="{{ $value }}" @selected($currentRole === $value)>{{ $label }}</option>
-            @endforeach
-        </select>
-        @error('role') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+        <span class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Account role</span>
+        @php $currentRole = $employee?->user?->getRoleNames()->first() ?? \App\Support\RoleMatrix::EMPLOYEE; @endphp
+        <div class="flex h-[42px] items-center gap-2 rounded-xs border border-dashed border-gray-300 px-3 text-sm text-gray-700 dark:border-slate-600 dark:text-slate-200">
+            <span class="badge {{ $currentRole === 'employee' ? 'badge-neutral' : 'badge-info' }}">{{ \App\Support\RoleMatrix::ROLE_LABELS[$currentRole] ?? ucfirst($currentRole) }}</span>
+            <span class="text-xs text-gray-500 dark:text-slate-400">
+                @if($employee)
+                    Roles are changed in <a href="{{ \Route::has('users.index') ? route('users.index') : '#' }}" class="underline">User Management</a>.
+                @else
+                    New employees always get the Employee role. Super Admin, Admin and Developer accounts are set in User Management.
+                @endif
+            </span>
+        </div>
     </div>
 
     <div>
@@ -53,17 +64,6 @@
             <option value="">— None —</option>
             @foreach($schedules as $sched)
                 <option value="{{ $sched->id }}" @selected(old('schedule_id', $employee?->schedule_id) == $sched->id)>{{ $sched->name }}</option>
-            @endforeach
-        </select>
-    </div>
-    <div>
-        <label for="supervisor_id" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Supervisor <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
-        <select id="supervisor_id" name="supervisor_id"
-                class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
-            <option value="">— None —</option>
-            @foreach($supervisors as $sup)
-                @continue($employee && $sup->id === $employee->id)
-                <option value="{{ $sup->id }}" @selected(old('supervisor_id', $employee?->supervisor_id) == $sup->id)>{{ $sup->full_name }}</option>
             @endforeach
         </select>
     </div>

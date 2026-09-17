@@ -5,7 +5,7 @@
         lng: {{ json_encode(old('longitude', $site?->longitude ?? 121.0049)) }},
         radius: {{ json_encode((int) old('geofence_radius_m', $site?->geofence_radius_m ?? 150)) }},
         fresh: {{ json_encode(! $site && ! old('latitude')) }},
-     })" x-init="init()" class="grid gap-5 sm:grid-cols-2">
+     })" class="grid gap-5 sm:grid-cols-2">
 
     <div class="sm:col-span-2">
         <label for="name" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Location name</label>
@@ -44,7 +44,7 @@
             <div x-ref="map" class="relative z-0 h-72 w-full bg-gray-100 dark:bg-deep"></div>
             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 dark:border-hair bg-gray-50 dark:bg-slate-800/60 px-3 py-2 text-xs text-gray-500 dark:text-slate-400">
                 <span>Click the map or drag the pin to set the centre. <span x-show="fresh" class="text-amber-700 dark:text-amber-300">Pin is at a default position — move it to the real site.</span></span>
-                <button type="button" @click="useMyLocation()" class="inline-flex items-center gap-1 rounded-xs border border-brand-400/60 px-2 py-1 font-medium text-brand-600 dark:text-brand-300 hover:bg-brand-400/10">Use my current location</button>
+                <button type="button" @click="useMyLocation()" class="btn-app btn-xs btn-outline-brand">Use my current location</button>
             </div>
         </div>
     </div>

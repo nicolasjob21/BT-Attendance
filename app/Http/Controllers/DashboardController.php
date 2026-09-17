@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeRequest;
 use App\Models\PayrollPeriod;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -46,10 +47,14 @@ class DashboardController extends Controller
         $activeEmployees = $canManage ? Employee::where('status', 'active')->count() : null;
         $currentPeriod = $canPayroll ? PayrollPeriod::latest('period_start')->first() : null;
 
+        // Superadmin is management-only: no clock in/out, leave or OT on the dashboard.
+        $canClock = $user->can('clock attendance');
+        $onlineNow = $user->can('manage users') ? User::online()->count() : null;
+
         return view('dashboard', compact(
             'employee', 'todayLog', 'isClockedIn', 'myPendingLeave', 'myPendingOt',
             'canApprove', 'canManage', 'canPayroll', 'pendingApprovals',
-            'activeEmployees', 'currentPeriod',
+            'activeEmployees', 'currentPeriod', 'canClock', 'onlineNow',
         ));
     }
 }

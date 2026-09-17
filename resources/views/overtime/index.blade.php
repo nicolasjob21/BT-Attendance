@@ -3,7 +3,7 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Overtime Requests</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
         @if(session('status'))
             <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">
                 {{ session('status') }}
@@ -14,7 +14,7 @@
             <p class="text-sm text-gray-500 dark:text-slate-400">
                 {{ $canApprove ? 'Overtime requests awaiting your decision, and past decisions.' : 'Your overtime requests. Actual hours are filled in from your clock-out once the day is over.' }}
             </p>
-            <a href="{{ route('overtime.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">Request Overtime</a>
+            <a href="{{ route('overtime.create') }}" class="btn-app btn-md btn-brand">Request Overtime</a>
         </div>
 
         <div class="overflow-hidden card">
@@ -90,9 +90,9 @@
                                                    class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
                                             <div class="flex gap-1.5">
                                                 <button formaction="{{ route('overtime.approve', $req) }}"
-                                                        class="rounded-xs bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Approve</button>
+                                                        class="btn-app btn-xs btn-success">Approve</button>
                                                 <button formaction="{{ route('overtime.deny', $req) }}"
-                                                        class="rounded-xs border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30">Deny</button>
+                                                        class="btn-app btn-xs btn-outline-danger">Deny</button>
                                             </div>
                                         </form>
                                     @else

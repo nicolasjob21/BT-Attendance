@@ -7,12 +7,11 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · {{ $c->isDraft() ? 'Review' : 'Monitoring' }}</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Check Point</x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-5"
-         x-data="monitor({ live: @js($live), status: @js($c->status), expiresAt: @js($c->expires_at?->toIso8601String()), serverNow: @js(now()->toIso8601String()), statusUrl: @js(route('checkpoints.status', $c)) })" x-init="init()">
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
+    <div class="page space-y-5"
+         x-data="monitor({ live: @js($live), status: @js($c->status), expiresAt: @js($c->expires_at?->toIso8601String()), serverNow: @js(now()->toIso8601String()), statusUrl: @js(route('checkpoints.status', $c)) })">
         @if($errors->any())
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ $errors->first() }}</div>
         @endif
@@ -21,8 +20,7 @@
         <div class="card p-5">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div class="min-w-0">
-                    <a href="{{ route('checkpoints.index') }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">← Check Point</a>
-                    @if($c->starts_at)<span class="text-xs text-gray-400"> · </span><a href="{{ route('checkpoints.daily', ['date' => $c->starts_at->toDateString(), 'site' => $c->project_site_id]) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">All checkpoints on {{ $c->starts_at->format('M j') }} at this site</a>@endif
+                    @if($c->starts_at)<a href="{{ route('checkpoints.daily', ['date' => $c->starts_at->toDateString(), 'site' => $c->project_site_id]) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">All checkpoints on {{ $c->starts_at->format('M j') }} at this site</a>@endif
                     <div class="mt-1 flex flex-wrap items-center gap-2">
                         <h2 class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ $c->name }}</h2>
                         <x-campaign-status-badge :campaign="$c" />
@@ -33,28 +31,65 @@
                 <div class="flex flex-wrap items-center gap-1.5">
                     @if($c->isDraft())
                         @can('create checkpoint campaign')
-                            <a href="{{ route('checkpoints.edit', $c) }}" class="rounded-xs border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Edit</a>
+                            <a href="{{ route('checkpoints.edit', $c) }}" class="btn-app btn-sm btn-secondary">Edit</a>
                         @endcan
                         @can('activate checkpoint campaign')
                             <x-confirm-action :action="route('checkpoints.activate', $c)" size="md" variant="primary" button="Activate now"
                                 title="Activate this checkpoint now?"
                                 message="The server will set one start time (now) and one deadline ({{ $c->response_window_minutes }} minutes from now) for all {{ $employees->count() }} selected employee(s) at {{ $c->site?->name }}, and notify them immediately." />
-                            <div x-data="{ open: false }" class="inline-block">
-                                <button type="button" @click="open = true" class="rounded-xs border border-sky-300 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30">{{ $c->isScheduled() ? 'Change start time' : 'Set start time' }}</button>
+                            <div x-data="{ open: false, mode: 'random' }" class="inline-block">
+                                <button type="button" @click="open = true" class="btn-app btn-sm btn-outline-brand">{{ $c->isScheduled() ? 'Change start time' : 'Schedule' }}</button>
                                 <template x-teleport="body">
                                     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="open = false">
                                         <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" @click="open = false"></div>
-                                        <form method="POST" action="{{ route('checkpoints.schedule', $c) }}" class="relative w-full max-w-md rounded-xs border border-gray-200 bg-white p-5 shadow-2xl dark:border-hair dark:bg-surface">
-                                            @csrf
-                                            <h3 class="text-base font-semibold text-gray-900 dark:text-slate-100">Schedule the checkpoint start</h3>
-                                            <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">At this time the server activates the checkpoint for everyone with a {{ $c->response_window_minutes }}-minute window and sends the notifications.</p>
-                                            <input type="datetime-local" name="scheduled_start_at" required value="{{ old('scheduled_start_at', $c->scheduled_start_at?->format('Y-m-d\TH:i') ?? now()->addMinutes(30)->format('Y-m-d\TH:i')) }}"
-                                                   class="mt-3 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
-                                            <div class="mt-4 flex justify-end gap-2">
-                                                <button type="button" @click="open = false" class="rounded-xs border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 dark:border-slate-600 dark:text-slate-200">Cancel</button>
-                                                <button class="rounded-xs bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700">Schedule</button>
+                                        <div x-show="open" x-transition class="relative w-full max-w-md rounded-xs border border-gray-200 bg-white p-5 shadow-2xl dark:border-hair dark:bg-surface">
+                                            <h3 class="text-base font-semibold text-gray-900 dark:text-slate-100">Schedule the checkpoint</h3>
+
+                                            {{-- Mode switch --}}
+                                            <div class="mt-3 grid grid-cols-2 gap-1 rounded-xs border border-gray-200 p-1 dark:border-slate-700">
+                                                <button type="button" @click="mode = 'random'" :class="mode === 'random' ? 'bg-brand-500 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700/60'" class="rounded-xs px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition">Let the system pick</button>
+                                                <button type="button" @click="mode = 'manual'" :class="mode === 'manual' ? 'bg-brand-500 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700/60'" class="rounded-xs px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition">Exact time</button>
                                             </div>
-                                        </form>
+
+                                            {{-- Random within a window --}}
+                                            <form x-show="mode === 'random'" method="POST" action="{{ route('checkpoints.schedule-random', $c) }}" class="mt-4">
+                                                @csrf
+                                                <p class="text-sm text-gray-600 dark:text-slate-300">Pick the day and the working hours. The server draws a random start time inside that window (leaving room for the {{ $c->response_window_minutes }}-minute response window). <b class="text-gray-900 dark:text-slate-100">You will see the drawn time</b> on this page so you can give the team leader a heads-up — employees will not.</p>
+                                                <label class="mt-3 block text-xs font-medium text-gray-700 dark:text-slate-200">Date</label>
+                                                <input type="date" name="date" required value="{{ old('date', ($c->scheduled_start_at ?? now())->toDateString()) }}" min="{{ now()->toDateString() }}"
+                                                       class="mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                                                <div class="mt-3 grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-700 dark:text-slate-200">Between</label>
+                                                        <input type="time" name="window_start" required value="{{ old('window_start', $c->random_window_start ? substr($c->random_window_start, 0, 5) : '08:30') }}"
+                                                               class="mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs font-medium text-gray-700 dark:text-slate-200">And</label>
+                                                        <input type="time" name="window_end" required value="{{ old('window_end', $c->random_window_end ? substr($c->random_window_end, 0, 5) : '17:30') }}"
+                                                               class="mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                                                    </div>
+                                                </div>
+                                                @error('random_window') <p class="mt-2 text-sm text-rose-600">{{ $message }}</p> @enderror
+                                                <div class="mt-4 flex justify-end gap-2">
+                                                    <button type="button" @click="open = false" class="btn-app btn-md btn-secondary">Cancel</button>
+                                                    <button class="btn-app btn-md btn-brand">{{ $c->isRandomlyScheduled() ? 'Draw a new time' : 'Generate time' }}</button>
+                                                </div>
+                                            </form>
+
+                                            {{-- Exact time --}}
+                                            <form x-show="mode === 'manual'" x-cloak method="POST" action="{{ route('checkpoints.schedule', $c) }}" class="mt-4">
+                                                @csrf
+                                                <p class="text-sm text-gray-600 dark:text-slate-300">At this time the server activates the checkpoint for everyone with a {{ $c->response_window_minutes }}-minute window.</p>
+                                                <input type="datetime-local" name="scheduled_start_at" required value="{{ old('scheduled_start_at', $c->scheduled_start_at?->format('Y-m-d\TH:i') ?? now()->addMinutes(30)->format('Y-m-d\TH:i')) }}"
+                                                       class="mt-3 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                                                @error('scheduled_start_at') <p class="mt-2 text-sm text-rose-600">{{ $message }}</p> @enderror
+                                                <div class="mt-4 flex justify-end gap-2">
+                                                    <button type="button" @click="open = false" class="btn-app btn-md btn-secondary">Cancel</button>
+                                                    <button class="btn-app btn-md btn-brand">Schedule</button>
+                                                </div>
+                                            </form>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -88,11 +123,28 @@
                     @endif
                     @can('export checkpoint reports')
                         @unless($c->isDraft())
-                            <a href="{{ route('checkpoints.export', $c) }}" class="rounded-xs border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Export CSV</a>
+                            <a href="{{ route('checkpoints.export', $c) }}" class="btn-app btn-sm btn-secondary">Export CSV</a>
                         @endunless
                     @endcan
                 </div>
             </div>
+
+            @if($c->isScheduled())
+                <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xs border border-brand-400/40 bg-brand-400/10 px-4 py-3 dark:bg-brand-500/10">
+                    <div>
+                        <p class="text-[10px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300">Checkpoint fires at</p>
+                        <p class="font-display text-2xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->scheduled_start_at->format('g:i A') }} <span class="text-sm font-medium text-gray-500 dark:text-slate-400">{{ $c->scheduled_start_at->format('D, M j') }}</span></p>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-slate-300">
+                        @if($c->isRandomlyScheduled())
+                            <span class="badge badge-info">System-generated</span> drawn from {{ $c->randomWindowLabel() }}.
+                        @else
+                            <span class="badge badge-neutral">Set by admin</span>
+                        @endif
+                        Only admins see this — give the PM / team leader a heads-up before then.
+                    </p>
+                </div>
+            @endif
 
             {{-- Official times --}}
             <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
@@ -137,27 +189,50 @@
                 </div>
             </section>
         @else
-            {{-- Counters --}}
+            {{-- Outcome: completed vs not completed (waiting only while the window is open) --}}
             @php
-                $tiles = [
-                    ['Included', $counts['total'], 'text-gray-900 dark:text-slate-100'],
-                    ['Completed', $counts['completed'], 'text-emerald-600 dark:text-emerald-400'],
-                    ['Pending', $counts['pending'], $live ? 'text-sky-600 dark:text-sky-400' : 'text-gray-500'],
-                    ['Missed', $counts['missed'], 'text-rose-600 dark:text-rose-400'],
-                    ['Outside geofence', $counts['outside'], 'text-rose-600 dark:text-rose-400'],
-                    ['Requires review', $counts['review'], 'text-amber-600 dark:text-amber-400'],
-                ];
+                $notCompleted = $counts['total'] - $counts['completed'] - ($live ? $counts['pending'] : 0);
+                $pct = $counts['total'] ? (int) round($counts['completed'] / $counts['total'] * 100) : 0;
             @endphp
-            <div class="grid grid-cols-3 gap-3 lg:grid-cols-6">
-                @foreach($tiles as [$label, $value, $tone])
-                    <div class="card p-4"><p class="eyebrow text-[10px]">{{ $label }}</p><p class="mt-1.5 text-2xl font-bold tabular-nums {{ $tone }}">{{ $value }}</p></div>
-                @endforeach
+            <div class="card p-5">
+                <div class="grid gap-4 sm:grid-cols-3">
+                    <div>
+                        <p class="eyebrow text-[10px]">Completed</p>
+                        <p class="mt-1 font-display text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{{ $counts['completed'] }} <span class="text-base font-medium text-gray-500 dark:text-slate-400">of {{ $counts['total'] }}</span></p>
+                    </div>
+                    <div>
+                        <p class="eyebrow text-[10px]">Not completed</p>
+                        <p class="mt-1 font-display text-3xl font-bold tabular-nums {{ $notCompleted ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400 dark:text-slate-500' }}">{{ $notCompleted }}</p>
+                    </div>
+                    @if($live)
+                        <div>
+                            <p class="eyebrow text-[10px]">Waiting</p>
+                            <p class="mt-1 font-display text-3xl font-bold tabular-nums text-sky-600 dark:text-sky-400">{{ $counts['pending'] }}</p>
+                        </div>
+                    @else
+                        <div>
+                            <p class="eyebrow text-[10px]">Completion rate</p>
+                            <p class="mt-1 font-display text-3xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $pct }}%</p>
+                        </div>
+                    @endif
+                </div>
+                <div class="mt-4 flex h-2 overflow-hidden rounded-none bg-gray-200 dark:bg-slate-700" role="img" aria-label="{{ $counts['completed'] }} completed, {{ $notCompleted }} not completed">
+                    <div class="bg-emerald-500" style="width: {{ $pct }}%"></div>
+                    @if($live)<div class="bg-sky-400" style="width: {{ $counts['total'] ? round($counts['pending'] / $counts['total'] * 100) : 0 }}%"></div>@endif
+                    <div class="bg-accent-500" style="width: {{ $counts['total'] ? round($notCompleted / $counts['total'] * 100) : 0 }}%"></div>
+                </div>
+                <p class="mt-3 text-xs text-gray-500 dark:text-slate-400">
+                    Not completed breaks down as: <b class="text-gray-800 dark:text-slate-200">{{ $counts['missed'] }}</b> missed ·
+                    <b class="text-gray-800 dark:text-slate-200">{{ $counts['outside'] }}</b> outside geofence ·
+                    <b class="text-gray-800 dark:text-slate-200">{{ $counts['review'] }}</b> requires review
+                    @if(! $live && $counts['open_follow_ups']) · <b class="text-amber-700 dark:text-amber-300">{{ $counts['open_follow_ups'] }}</b> follow-up(s) open @endif
+                </p>
             </div>
 
             {{-- TABLE 1 --}}
             <section class="card overflow-hidden">
                 <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Completed employees</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100"><span class="badge badge-success mr-2">Completed</span>Employees who completed the checkpoint</h3>
                     <span class="text-xs text-gray-500 dark:text-slate-400">{{ $completed->count() }} of {{ $counts['total'] }}</span>
                 </div>
                 <x-checkpoints.completed-table :rows="$completed" :campaign="$c" />
@@ -166,7 +241,7 @@
             {{-- TABLE 2 --}}
             <section class="card overflow-hidden">
                 <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">{{ $live ? 'Pending employees' : 'Pending / non-compliant employees' }}</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">@if($live)<span class="badge badge-info mr-2">Waiting</span>Employees who have not responded yet @else<span class="badge badge-danger mr-2">Not completed</span>Employees who did not complete the checkpoint @endif</h3>
                     <span class="text-xs text-gray-500 dark:text-slate-400">{{ $pending->count() }}@if(! $live && $counts['open_follow_ups']) · {{ $counts['open_follow_ups'] }} follow-up(s) open @endif</span>
                 </div>
                 <x-checkpoints.pending-table :rows="$pending" :campaign="$c" />

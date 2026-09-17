@@ -28,6 +28,13 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // Sign-in history shown on User Management.
+        $request->user()->forceFill([
+            'last_login_at' => now(),
+            'last_login_ip' => $request->ip(),
+            'last_seen_at' => now(),
+        ])->saveQuietly();
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

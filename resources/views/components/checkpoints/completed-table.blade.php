@@ -44,7 +44,7 @@
                     <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
                         <div class="flex justify-end">
                             @can('view checkpoint results')
-                                <a href="{{ route('checkpoints.results.show', $cp) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">View details</a>
+                                <a href="{{ route('checkpoints.results.show', $cp) }}" class="btn-app btn-xs btn-secondary">View details</a>
                             @endcan
                         </div>
                     </td>

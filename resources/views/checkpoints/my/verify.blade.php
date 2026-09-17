@@ -3,14 +3,17 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Presence Checkpoint</h1>
     </x-slot>
+    <x-slot name="back">{{ route('my-checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to My Checkpoints</x-slot>
+    <x-slot name="immersive">1</x-slot>
 
     {{--
         Same camera-first stage as Clock In / Out. Countdown runs off the SERVER
         clock (offset computed at load); the server re-validates everything.
     --}}
-    <div x-data="checkpointCapture()" x-init="init()" class="-m-4 sm:mx-auto sm:my-0 sm:max-w-3xl">
+    <div x-data="checkpointCapture()" class="sm:mx-auto sm:max-w-3xl">
         <form method="POST" action="{{ route('my-checkpoints.submit', $cp) }}" x-ref="form" @submit="submitting = true"
-              class="relative isolate flex h-[calc(100dvh-4rem)] flex-col overflow-hidden bg-black text-white sm:h-[calc(100dvh-7.5rem)] sm:min-h-[640px] sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-white/10">
+              class="relative isolate flex h-dvh flex-col overflow-hidden bg-black text-white sm:h-[calc(100dvh-7.5rem)] sm:min-h-[640px] sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-white/10">
             @csrf
             <input type="hidden" name="latitude" x-model="lat">
             <input type="hidden" name="longitude" x-model="lng">
@@ -28,7 +31,7 @@
                 <div class="max-w-xs space-y-3">
                     <p class="text-sm text-white/80" x-text="cameraError"></p>
                     <button type="button" @click="startCamera()" class="rounded-full border border-white/30 px-4 py-1.5 text-sm font-semibold hover:bg-white/10">Retry camera</button>
-                    <button type="button" @click="reportIssue('camera_denied')" class="block w-full rounded-full border border-amber-300/60 px-4 py-1.5 text-sm font-semibold text-amber-200 hover:bg-white/10">Report: camera blocked</button>
+                    <button type="button" @click="reportIssue('camera_denied')" class="block w-full rounded-full border border-white/30 px-4 py-1.5 text-center text-sm font-semibold hover:bg-white/10">Report: camera blocked</button>
                 </div>
             </div>
 
@@ -89,7 +92,7 @@
                     <p class="text-white/80">You can still submit — HR will review it. Try “Retry GPS” first for a better fix.</p>
                     <div class="mt-1.5 flex flex-wrap gap-2">
                         <button type="button" @click="getLocation()" class="rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Retry GPS</button>
-                        <button type="button" x-show="locStatus === 'gps_unavailable'" @click="reportIssue('gps_unavailable')" class="rounded-full border border-amber-300/60 px-3 py-1 font-semibold text-amber-200 hover:bg-white/10">Report: no GPS</button>
+                        <button type="button" x-show="locStatus === 'gps_unavailable'" @click="reportIssue('gps_unavailable')" class="rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Report: no GPS</button>
                     </div>
                 </div>
 
@@ -104,7 +107,7 @@
             </div>
 
             {{-- Controls --}}
-            <div class="relative z-20 bg-black/75 pt-1.5 backdrop-blur-md" style="padding-bottom: max(env(safe-area-inset-bottom), 0.375rem)">
+            <div class="relative z-20 bg-black/35 pt-1.5 backdrop-blur-sm" style="padding-bottom: max(env(safe-area-inset-bottom), 0.375rem)">
                 <p class="min-h-[14px] text-center text-[10px] transition-colors" :class="canSubmit() ? 'text-emerald-300' : 'text-white/60'" x-text="submitHint()"></p>
                 <div class="mt-0.5 grid grid-cols-3 items-center px-6">
                     <div class="flex justify-start">

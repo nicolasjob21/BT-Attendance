@@ -8,13 +8,16 @@
     <link rel="icon" type="image/png" href="{{ asset('images/brite-fav.png') }}">
     <link rel="apple-touch-icon" href="{{ asset('images/brite-fav.png') }}">
 
-    {{-- Set theme before paint to avoid a flash --}}
+    {{-- Set theme and sidebar state before paint so neither flashes or slides on load --}}
     <script>
         (function () {
             try {
                 var t = localStorage.getItem('theme');
                 if (t !== 'light') {
                     document.documentElement.classList.add('dark');
+                }
+                if (localStorage.getItem('sidebar_collapsed') === '1') {
+                    document.documentElement.classList.add('sidebar-collapsed');
                 }
             } catch (e) {}
         })();
@@ -28,14 +31,19 @@
 @php
     $user = auth()->user();
     $role = $user?->getRoleNames()->first();
-    $roleLabels = ['superadmin' => 'Super Admin (CEO)', 'hr' => 'HR', 'employee' => 'Employee'];
+    $roleLabels = \App\Support\RoleMatrix::ROLE_LABELS;
 @endphp
 <div
     x-data="{
         sidebar: false,
-        collapsed: localStorage.getItem('sidebar_collapsed') === '1',
+        collapsed: document.documentElement.classList.contains('sidebar-collapsed'),
         dark: document.documentElement.classList.contains('dark'),
-        toggleCollapse() { this.collapsed = !this.collapsed; localStorage.setItem('sidebar_collapsed', this.collapsed ? '1' : '0'); },
+        init() { requestAnimationFrame(() => document.documentElement.classList.add('sidebar-ready')); },
+        toggleCollapse() {
+            this.collapsed = !this.collapsed;
+            document.documentElement.classList.toggle('sidebar-collapsed', this.collapsed);
+            localStorage.setItem('sidebar_collapsed', this.collapsed ? '1' : '0');
+        },
         toggleDark() { this.dark = !this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('theme', this.dark ? 'dark' : 'light'); }
     }"
     class="min-h-screen bg-slate-100 dark:bg-ink">
@@ -45,15 +53,13 @@
          class="fixed inset-0 z-20 bg-gray-900/50 lg:hidden"></div>
 
     {{-- Sidebar --}}
-    <aside x-cloak
-           :class="[sidebar ? 'translate-x-0' : '-translate-x-full', collapsed ? 'lg:w-16' : 'lg:w-64']"
-           class="fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-gray-200 bg-white text-gray-600 transition-all duration-200 lg:translate-x-0 dark:border-hair dark:bg-deep dark:text-slate-300">
+    <aside :class="sidebar ? 'translate-x-0' : '-translate-x-full'"
+           class="app-sidebar fixed inset-y-0 left-0 z-30 flex w-64 -translate-x-full transform flex-col border-r border-gray-200 bg-white text-gray-600 lg:translate-x-0 dark:border-hair dark:bg-deep dark:text-slate-300">
 
         {{-- Brand --}}
         <div class="flex h-16 shrink-0 items-center justify-center gap-2 border-b border-gray-200 px-3 dark:border-hair">
-            <img src="{{ asset('images/brite-fav.png') }}" alt="Brite-Tech" class="hidden h-9 w-9 shrink-0 object-contain"
-                 :class="collapsed ? 'lg:block' : ''">
-            <span :class="collapsed ? 'lg:hidden' : ''" class="flex items-center justify-center">
+            <img src="{{ asset('images/brite-fav.png') }}" alt="Brite-Tech" class="sb-mini hidden h-9 w-9 shrink-0 object-contain">
+            <span class="sb-label flex items-center justify-center">
                 <img src="{{ asset('images/brite-logo.png') }}" alt="Brite-Tech" class="h-8 w-auto max-w-full object-contain">
             </span>
         </div>
@@ -64,23 +70,35 @@
                 <x-nav-item :active="request()->routeIs('dashboard')" :href="route('dashboard')" icon="grid">Dashboard</x-nav-item>
             </div>
 
+            @php
+                // Superadmin is management-only: no self-service section at all.
+                $selfService = $user?->canAny(['clock attendance', 'request leave', 'request overtime', 'approve requests']);
+            @endphp
+            @if($selfService)
             <div>
-                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Self-service</p>
+                <p class="sb-label px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">{{ $user->can('clock attendance') ? 'Self-service' : 'Approvals' }}</p>
                 <div class="space-y-1">
-                    <x-nav-item :active="request()->routeIs('attendance.create')" :href="route('attendance.create')" icon="clock">Clock In / Out</x-nav-item>
-                    <x-nav-item :active="request()->routeIs('attendance.index')" :href="route('attendance.index')" icon="list">My Attendance</x-nav-item>
-                    <x-nav-item :active="request()->routeIs('leave.*')" :href="route('leave.index')" icon="calendar">Leave</x-nav-item>
-                    <x-nav-item :active="request()->routeIs('overtime.*')" :href="route('overtime.index')" icon="plus-clock">Overtime</x-nav-item>
-                    @if($user?->employee)
+                    @can('clock attendance')
+                        <x-nav-item :active="request()->routeIs('attendance.create')" :href="route('attendance.create')" icon="clock">Clock In / Out</x-nav-item>
+                        <x-nav-item :active="request()->routeIs('attendance.index')" :href="route('attendance.index')" icon="list">My Attendance</x-nav-item>
+                    @endcan
+                    @if($user->canAny(['request leave', 'approve requests']))
+                        <x-nav-item :active="request()->routeIs('leave.*')" :href="route('leave.index')" icon="calendar">Leave</x-nav-item>
+                    @endif
+                    @if($user->canAny(['request overtime', 'approve requests']))
+                        <x-nav-item :active="request()->routeIs('overtime.*')" :href="route('overtime.index')" icon="plus-clock">Overtime</x-nav-item>
+                    @endif
+                    @if($user->employee && $user->can('clock attendance'))
                         @php $openCheckpoints = \App\Models\Checkpoint::where('employee_id', $user->employee->id)->whereIn('status', \App\Models\Checkpoint::WAITING_STATUSES)->whereHas('campaign', fn ($q) => $q->where('status', 'active'))->count(); @endphp
                         <x-nav-item :active="request()->routeIs('my-checkpoints.*')" :href="route('my-checkpoints.index')" icon="shield-check" :badge="$openCheckpoints ?: null">My Checkpoints</x-nav-item>
                     @endif
                 </div>
             </div>
+            @endif
 
-            @if($user?->can('manage employees') || $user?->can('run payroll') || $user?->can('view team reports') || $user?->can('manage settings') || $user?->can('view checkpoint module'))
+            @if($user?->canAny(['manage employees', 'run payroll', 'view team reports', 'manage settings', 'manage sites', 'view checkpoint module', 'manage users', 'manage roles']))
             <div>
-                <p :class="collapsed ? 'lg:hidden' : ''" class="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
+                <p class="sb-label px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
                 <div class="space-y-1">
                     @can('view team reports')
                         <x-nav-item :active="request()->routeIs('attendance.monitor')" :href="route('attendance.monitor')" icon="list">Attendance Log</x-nav-item>
@@ -94,9 +112,12 @@
                     @can('view checkpoint module')
                         <x-nav-item :active="request()->routeIs('checkpoints.*')" :href="route('checkpoints.index')" icon="shield-check">Check Point</x-nav-item>
                     @endcan
-                    @can('manage settings')
+                    @if($user->canAny(['manage settings', 'manage sites']))
                         <x-nav-item :active="request()->routeIs('sites.*')" :href="route('sites.index')" icon="map-pin">Locations</x-nav-item>
-                    @endcan
+                    @endif
+                    @if($user->canAny(['manage users', 'manage roles']))
+                        <x-nav-item :active="request()->routeIs('users.*') || request()->routeIs('roles.*')" :href="$user->can('manage users') ? route('users.index') : route('roles.index')" icon="user-cog">User Management</x-nav-item>
+                    @endif
                 </div>
             </div>
             @endif
@@ -106,15 +127,17 @@
         <div class="hidden shrink-0 border-t border-gray-200 p-2 lg:block dark:border-hair">
             <button @click="toggleCollapse()" class="flex w-full items-center gap-3 rounded-none px-3 py-2 text-sm text-gray-500 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-400 dark:hover:bg-brand-500/10 dark:hover:text-white">
                 <svg class="h-5 w-5 shrink-0 transition-transform" :class="collapsed && 'rotate-180'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/></svg>
-                <span :class="collapsed ? 'lg:hidden' : ''">Collapse</span>
+                <span class="sb-label">Collapse</span>
             </button>
         </div>
     </aside>
 
     {{-- Main column --}}
-    <div :class="collapsed ? 'lg:pl-16' : 'lg:pl-64'" class="transition-all duration-200">
+    <div class="app-main">
         {{-- Top bar --}}
-        <header class="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-gray-200 bg-white/90 px-4 backdrop-blur dark:border-hair dark:bg-deep/80 sm:px-6">
+        {{-- Pages can set <x-slot name="immersive">1</x-slot> to hide the top bar on phones
+             (full-screen camera stages that bring their own controls). --}}
+        <header class="{{ isset($immersive) ? 'hidden sm:flex' : 'flex' }} sticky top-0 z-10 h-16 items-center gap-3 border-b border-gray-200 bg-white/90 px-4 backdrop-blur dark:border-hair dark:bg-deep/80 sm:px-6">
             <button @click="sidebar = true" class="lg:hidden text-gray-500 hover:text-gray-700 dark:text-slate-400" aria-label="Open menu">
                 <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
             </button>
@@ -208,7 +231,12 @@
             </div>
         @endif
 
-        <main class="p-4 sm:p-6">
+        {{-- Floating back button, bottom-right (pages that set the "back" slot) --}}
+        @isset($back)
+            <x-back-button :href="trim($back)" :label="trim($backLabel ?? 'Back')" />
+        @endisset
+
+        <main class="{{ isset($immersive) ? 'p-0 sm:p-6' : 'p-4 sm:p-6' }} lg:px-8 lg:py-7">
             {{ $slot }}
         </main>
     </div>
@@ -217,7 +245,7 @@
          browser notification the moment HR activates a checkpoint. The
          server-side deadline is the only official one; this is a heads-up. --}}
     @if($user?->employee && ! request()->routeIs('my-checkpoints.show'))
-        <div x-data="checkpointAlert({{ (int) config('checkpoints.poll_seconds', 20) }})" x-init="init()">
+        <div x-data="checkpointAlert({{ (int) config('checkpoints.poll_seconds', 20) }})">
             <div x-show="cp && !dismissed" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="dismissed = true">
                 <div class="fixed inset-0 bg-gray-900/70 backdrop-blur-sm"></div>
                 <div class="relative w-full max-w-md overflow-hidden rounded-xs border-2 border-accent-500 bg-white shadow-2xl dark:bg-surface" role="alertdialog" aria-live="assertive">
@@ -237,8 +265,8 @@
                             <dt class="text-gray-500 dark:text-slate-400">Deadline</dt><dd class="tabular-nums font-semibold text-accent-700 dark:text-accent-300" x-text="fmt(cp?.expires_at)"></dd>
                         </dl>
                         <div class="flex gap-2 pt-1">
-                            <a :href="cp?.url" class="flex-1 rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2.5 text-center text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">Complete verification</a>
-                            <button type="button" @click="dismissed = true" class="rounded-xs border border-gray-300 px-3 py-2 text-sm text-gray-600 dark:border-slate-600 dark:text-slate-300">Later</button>
+                            <a :href="cp?.url" class="btn-app btn-md btn-brand flex-1">Complete verification</a>
+                            <button type="button" @click="dismissed = true" class="btn-app btn-md btn-secondary">Later</button>
                         </div>
                     </div>
                 </div>

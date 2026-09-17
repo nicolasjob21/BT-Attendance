@@ -2,40 +2,41 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · All responses</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Check Point</x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-4">
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
+    <div class="page space-y-4">
 
-        <form method="GET" class="card grid gap-2 p-3 sm:grid-cols-3 lg:grid-cols-7">
-            <select name="campaign" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+        <form method="GET" class="card flex flex-wrap items-center gap-2 p-3">
+            <select name="campaign" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
                 <option value="">All checkpoints</option>
                 @foreach($campaigns as $c)<option value="{{ $c->id }}" @selected($filters['campaign'] === $c->id)>{{ $c->name }}</option>@endforeach
             </select>
-            <select name="employee" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+            <select name="employee" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
                 <option value="">All employees</option>
                 @foreach($employees as $e)<option value="{{ $e->id }}" @selected($filters['employee'] === $e->id)>{{ $e->full_name }}</option>@endforeach
             </select>
-            <select name="status" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+            <select name="status" class="min-w-[160px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
                 <option value="">All statuses</option>
                 @foreach(\App\Models\Checkpoint::STATUSES as $v => $l)<option value="{{ $v }}" @selected($filters['status'] === $v)>{{ $l }}</option>@endforeach
             </select>
-            <select name="follow" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+            <select name="follow" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
                 <option value="">Any follow-up state</option>
                 <option value="open" @selected($filters['follow'] === 'open')>Follow-up open</option>
                 <option value="reviewed" @selected($filters['follow'] === 'reviewed')>Reviewed</option>
                 <option value="escalated" @selected($filters['follow'] === 'escalated')>Escalated</option>
             </select>
-            <input type="date" name="from" value="{{ $filters['from'] }}" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
-            <input type="date" name="to" value="{{ $filters['to'] }}" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
-            <div class="flex gap-2">
-                <button class="w-full rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">Filter</button>
-                <a href="{{ route('checkpoints.results.index') }}" class="rounded-xs border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-300">Clear</a>
+            <input type="date" name="from" value="{{ $filters['from'] }}" class="min-w-[150px] rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+            <input type="date" name="to" value="{{ $filters['to'] }}" class="min-w-[150px] rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+            <div class="flex shrink-0 gap-2">
+                <button class="btn-app btn-md btn-dark">Filter</button>
+                @if(array_filter($filters))
+                    <a href="{{ route('checkpoints.results.index') }}" class="btn-app btn-md btn-secondary">Clear</a>
+                @endif
             </div>
         </form>
 
-        <p class="text-xs text-gray-500 dark:text-slate-400">{{ $checkpoints->total() }} response(s) · <a href="{{ route('checkpoints.index') }}" class="text-brand-700 hover:underline dark:text-brand-300">Back to Check Point</a></p>
+        <p class="text-xs text-gray-500 dark:text-slate-400">{{ $checkpoints->total() }} response(s)</p>
 
         <div class="card overflow-hidden">
             <div class="overflow-x-auto">
@@ -73,7 +74,7 @@
                                     @else — @endif
                                 </td>
                                 <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
-                                    <div class="flex justify-end"><a href="{{ route('checkpoints.results.show', $cp) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Details</a></div>
+                                    <div class="flex justify-end"><a href="{{ route('checkpoints.results.show', $cp) }}" class="btn-app btn-xs btn-secondary">Details</a></div>
                                 </td>
                             </tr>
                         @empty

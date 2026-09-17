@@ -5,17 +5,17 @@ use App\Models\CheckpointCampaign;
 
 $c = $campaign;
 $map = [
-    CheckpointCampaign::DRAFT => 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
-    CheckpointCampaign::ACTIVE => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-    CheckpointCampaign::PAUSED => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-    CheckpointCampaign::EXPIRED => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-    CheckpointCampaign::COMPLETED => 'bg-brand-100 text-brand-800 dark:bg-brand-900/40 dark:text-brand-200',
-    CheckpointCampaign::CANCELLED => 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
+    CheckpointCampaign::DRAFT => 'badge-neutral',
+    CheckpointCampaign::ACTIVE => 'badge-success',
+    CheckpointCampaign::PAUSED => 'badge-warn',
+    CheckpointCampaign::EXPIRED => 'badge-danger',
+    CheckpointCampaign::COMPLETED => 'badge-info',
+    CheckpointCampaign::CANCELLED => 'badge-muted',
 ];
-$classes = $c->isScheduled() ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200' : ($map[$c->status] ?? 'bg-gray-100 text-gray-600');
+$classes = $c->isScheduled() ? 'badge-info' : ($map[$c->status] ?? 'badge-neutral');
 @endphp
 
-<span {{ $attributes->merge(['class' => "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium {$classes}"]) }}>
-    @if($c->status === CheckpointCampaign::ACTIVE)<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>@endif
+<span {{ $attributes->merge(['class' => "badge {$classes}"]) }}>
+    @if($c->status === CheckpointCampaign::ACTIVE)<i class="dot animate-pulse"></i>@endif
     {{ $c->status_label }}
 </span>

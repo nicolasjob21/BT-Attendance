@@ -147,6 +147,124 @@
                focus:ring-brand-500 dark:text-brand-300 dark:hover:text-ink;
     }
 
+    /* ---- App buttons ----
+       Inventory DNA (square corners, uppercase Syne, letter-spacing): tinted
+       fill, hairline border, solid fill on hover. Flat — no glow, no gradient.
+       Compose as "btn-app btn-md btn-brand". */
+    .btn-app {
+        @apply relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-none border
+               font-display font-semibold uppercase leading-none no-underline select-none
+               transition-all duration-200 ease-out
+               focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2 ring-offset-white dark:ring-offset-ink
+               disabled:pointer-events-none disabled:opacity-40;
+    }
+    .btn-md { @apply h-10 px-5 text-xs tracking-widest; }
+    .btn-sm { @apply h-8 px-3.5 text-[0.65rem] tracking-[0.1em]; }
+    .btn-xs { @apply h-7 px-2.5 text-[0.6rem] tracking-[0.08em]; }
+
+    /* Primary / affirmative — solid coral */
+    .btn-brand,
+    .btn-success {
+        @apply border-accent-500 bg-accent-500 text-white hover:border-accent-600 hover:bg-accent-600;
+    }
+    .btn-brand:hover, .btn-success:hover {
+    }
+
+    /* Secondary / navigation — cyan tint, fills on hover */
+    .btn-secondary,
+    .btn-outline-brand {
+        @apply border-brand-400/60 bg-brand-400/10 text-brand-600 hover:border-brand-400 hover:bg-brand-400 hover:text-white
+               dark:text-brand-300 dark:hover:text-ink;
+    }
+
+    /* Neutral (filters, cancel) — slate tint */
+    .btn-dark {
+        @apply border-slate-400/60 bg-slate-500/10 text-slate-600 hover:border-slate-500 hover:bg-slate-600 hover:text-white
+               dark:border-slate-500/50 dark:text-slate-300 dark:hover:bg-slate-500 dark:hover:text-white;
+    }
+
+    /* Destructive — deep coral tint, fills on hover */
+    .btn-danger,
+    .btn-outline-danger {
+        @apply border-accent-600/70 bg-accent-600/10 text-accent-500 hover:border-accent-600 hover:bg-accent-600 hover:text-white
+               dark:text-accent-400 dark:hover:text-white;
+    }
+
+    /* Caution — amber tint */
+    .btn-outline-warn {
+        @apply border-amber-400/60 bg-amber-400/10 text-amber-600 hover:border-amber-500 hover:bg-amber-500 hover:text-white
+               dark:text-amber-300 dark:hover:text-ink;
+    }
+
+    /* Positive — emerald tint */
+    .btn-outline-success {
+        @apply border-emerald-400/60 bg-emerald-400/10 text-emerald-600 hover:border-emerald-500 hover:bg-emerald-500 hover:text-white
+               dark:text-emerald-300 dark:hover:text-white;
+    }
+
+    /* ---- Row actions: compact buttons in table rows, same language ----
+       <div class="row-actions"><a>Timesheet</a><a class="is-primary">Edit</a></div> */
+    .row-actions { @apply inline-flex flex-nowrap items-center justify-end gap-1.5; }
+    .row-actions a,
+    .row-actions button {
+        @apply relative inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-none border px-2.5
+               font-display text-[0.65rem] font-semibold uppercase leading-none tracking-[0.08em] whitespace-nowrap no-underline
+               transition-all duration-200 ease-out
+               focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-2 ring-offset-white dark:ring-offset-ink
+               border-slate-400/60 bg-slate-500/10 text-slate-600 hover:border-slate-500 hover:bg-slate-600 hover:text-white
+               dark:border-slate-500/50 dark:text-slate-300 dark:hover:bg-slate-500 dark:hover:text-white;
+    }
+    .row-actions .is-primary {
+        @apply border-brand-400/60 bg-brand-400/10 text-brand-600 hover:border-brand-400 hover:bg-brand-400 hover:text-white
+               dark:text-brand-300 dark:hover:text-ink;
+    }
+    .row-actions .is-danger {
+        @apply border-accent-600/70 bg-accent-600/10 text-accent-500 hover:border-accent-600 hover:bg-accent-600 hover:text-white
+               dark:text-accent-400 dark:hover:text-white;
+    }
+    .row-actions .is-success {
+        @apply border-emerald-400/60 bg-emerald-400/10 text-emerald-600 hover:border-emerald-500 hover:bg-emerald-500 hover:text-white
+               dark:text-emerald-300 dark:hover:text-white;
+    }
+    .row-actions .is-warn {
+        @apply border-amber-400/60 bg-amber-400/10 text-amber-600 hover:border-amber-500 hover:bg-amber-500 hover:text-white
+               dark:text-amber-300 dark:hover:text-ink;
+    }
+
+    /* ---- Status badges — same language as the buttons ----
+       Square, uppercase Syne, tinted fill + hairline border. "badge badge-success".
+       Add <i class="dot"></i> inside for a status dot in the badge's own colour. */
+    .badge {
+        @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-none border px-2 py-[3px]
+               font-display text-[0.6rem] font-semibold uppercase leading-none tracking-[0.08em];
+    }
+    .badge .dot { @apply h-1.5 w-1.5 shrink-0 rounded-full bg-current; }
+    .badge-success { @apply border-emerald-400/50 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300; }
+    .badge-warn    { @apply border-amber-400/50 bg-amber-400/10 text-amber-700 dark:text-amber-300; }
+    .badge-danger  { @apply border-accent-600/60 bg-accent-600/10 text-accent-600 dark:text-accent-400; }
+    .badge-info    { @apply border-brand-400/50 bg-brand-400/10 text-brand-700 dark:text-brand-300; }
+    .badge-neutral { @apply border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300; }
+    .badge-muted   { @apply border-slate-400/30 bg-slate-500/5 text-slate-500 dark:text-slate-400; }
+
+    /* ---- Page containers ----
+       Wide lists / tables get up to 1400px on large monitors; forms stay narrower. */
+    .page      { @apply mx-auto w-full max-w-7xl 2xl:max-w-[1400px]; }
+    .page-form { @apply mx-auto w-full max-w-4xl; }
+
+    /* Dashboard greeting banner — two clearly different moods.
+       Light: a daylight wash (pale cyan → white → peach) with dark ink text and
+       a cyan hairline. Dark: deep teal → ember with white text. */
+    .hero-gradient {
+        @apply border border-brand-400/40 bg-linear-to-r from-brand-100 via-white to-accent-100 text-gray-900
+               dark:border-0 dark:from-brand-800 dark:via-brand-700 dark:to-accent-600 dark:text-white;
+    }
+    .hero-gradient .hero-muted { @apply text-gray-600 dark:text-white/80; }
+    .hero-gradient .hero-strong { @apply text-brand-800 dark:text-white; }
+    .hero-gradient .hero-btn {
+        @apply border-brand-500 bg-brand-500 text-white hover:bg-brand-600 hover:border-brand-600 focus:ring-brand-400
+               dark:border-white/70 dark:bg-transparent dark:hover:bg-white dark:hover:text-brand-700 dark:focus:ring-white;
+    }
+
     /* Signature blue -> orange brand gradient (from the logo) */
     .brand-gradient {
         @apply bg-linear-to-r from-brand-500 via-brand-400 to-accent-400;
@@ -210,4 +328,37 @@
 @media print {
     aside, header { display: none !important; }
     .lg\:pl-64, .lg\:pl-16 { padding-left: 0 !important; }
+}
+
+/* Desktop data tables: a touch more room and a slightly larger face so a
+   1400px page does not read as a compressed spreadsheet. */
+@media (min-width: 1024px) {
+    .card table.table-stack,
+    .card table.table-stack + *,
+    .card > .overflow-x-auto > table { font-size: 0.9rem; }
+    .card table.table-stack th,
+    .card > .overflow-x-auto > table th { padding: 0.85rem 0.875rem; }
+    .card table.table-stack td,
+    .card > .overflow-x-auto > table td { padding: 0.9rem 0.875rem; }
+}
+
+/* ---- App shell: sidebar + main column ----
+   The collapsed state is a class on <html>, set before first paint from
+   localStorage (see the head script in layouts/app.blade.php), so the layout
+   is correct on the very first frame — no slide-in on every page load.
+   Transitions are enabled only after Alpine has booted (html.sidebar-ready). */
+@media (min-width: 1024px) {
+    .app-sidebar { width: 16rem; }
+    .app-main    { padding-left: 16rem; }
+    html.sidebar-collapsed .app-sidebar { width: 4rem; }
+    html.sidebar-collapsed .app-main    { padding-left: 4rem; }
+    html.sidebar-collapsed .sb-label    { display: none; }
+    .sb-mini { display: none; }
+    html.sidebar-collapsed .sb-mini { display: block; }
+
+    html.sidebar-ready .app-sidebar { transition: width 200ms ease, transform 200ms ease; }
+    html.sidebar-ready .app-main    { transition: padding-left 200ms ease; }
+}
+@media (max-width: 1023.98px) {
+    .app-sidebar { transition: transform 200ms ease; }
 }

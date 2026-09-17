@@ -9,22 +9,20 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Checkpoint {{ $cp->reference() }}</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.show', $c) }}</x-slot>
+    <x-slot name="backLabel">Back to {{ $c->name }}</x-slot>
 
-    <div class="mx-auto max-w-6xl space-y-5">
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
+    <div class="page space-y-5">
         @if($errors->any())
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ $errors->first() }}</div>
         @endif
 
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-                <a href="{{ route('checkpoints.show', $c) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">← {{ $c->name }}</a>
                 <div class="mt-1 flex flex-wrap items-center gap-2">
                     <h2 class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ $cp->employee?->full_name }}</h2>
                     <x-checkpoint-status-badge :checkpoint="$cp" />
-                    @if($cp->escalated_at)<span class="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Escalated {{ $cp->escalated_at->format('M j') }}</span>@endif
+                    @if($cp->escalated_at)<span class="badge badge-danger">Escalated {{ $cp->escalated_at->format('M j') }}</span>@endif
                 </div>
                 <p class="text-sm text-gray-600 dark:text-slate-300">{{ $cp->employee?->employee_no }} · {{ $site?->name }} · window {{ $c->starts_at?->format('M j, g:i A') }} – {{ $c->expires_at?->format('g:i A') }}</p>
             </div>
@@ -50,7 +48,7 @@
                 <div x-data="checkpointMap({
                         site: @js($site ? ['lat' => (float) $site->latitude, 'lng' => (float) $site->longitude, 'r' => (int) $site->geofence_radius_m, 'name' => $site->name] : null),
                         fix: @js($cp->latitude !== null ? ['lat' => (float) $cp->latitude, 'lng' => (float) $cp->longitude, 'acc' => (float) ($cp->gps_accuracy_meters ?? 0)] : null),
-                     })" x-init="init()">
+                     })">
                     <div x-ref="map" class="relative z-0 h-64 w-full bg-gray-100 dark:bg-deep"></div>
                 </div>
                 <div class="px-4 py-2 text-xs text-gray-600 dark:text-slate-300">
@@ -174,7 +172,7 @@
                                     <option value="">Select a reason…</option>
                                     @foreach(Checkpoint::HR_REASONS as $v => $l)<option value="{{ $v }}" @selected(old('reason', $cp->hr_reason) === $v)>{{ $l }}</option>@endforeach
                                 </select>
-                                <button class="rounded-xs bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700">Record explanation</button>
+                                <button class="btn-app btn-md btn-dark">Record explanation</button>
                             </form>
 
                             <form x-show="tab === 'decide'" x-cloak method="POST" action="{{ route('checkpoints.results.follow-up', $cp) }}" class="mt-3 space-y-2">
@@ -187,10 +185,10 @@
                                 <label class="block text-xs font-medium text-gray-600 dark:text-slate-300">Note (optional)</label>
                                 <textarea name="note" rows="2" maxlength="1000" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea>
                                 <div class="flex flex-wrap gap-2">
-                                    <button name="action" value="approve" class="rounded-xs bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Approve exception</button>
-                                    <button name="action" value="reject" class="rounded-xs border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-900/30">Reject exception</button>
+                                    <button name="action" value="approve" class="btn-app btn-md btn-success">Approve exception</button>
+                                    <button name="action" value="reject" class="btn-app btn-md btn-outline-danger">Reject exception</button>
                                     @if($cp->status !== Checkpoint::PENDING_REVIEW)
-                                        <button name="action" value="mark_review" class="rounded-xs border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300">Mark as pending review</button>
+                                        <button name="action" value="mark_review" class="btn-app btn-md btn-outline-warn">Mark as pending review</button>
                                     @endif
                                 </div>
                                 <p class="text-[11px] text-gray-500 dark:text-slate-400">Approving counts the checkpoint as <em>completed after review</em>. The decision is stored as a separate review record; the original evidence is unchanged.</p>
@@ -199,20 +197,20 @@
                             <form x-show="tab === 'note'" x-cloak method="POST" action="{{ route('checkpoints.results.follow-up', $cp) }}" class="mt-3 space-y-2">
                                 @csrf <input type="hidden" name="action" value="note">
                                 <textarea name="note" rows="3" required maxlength="1000" placeholder="Internal HR note…" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea>
-                                <button class="rounded-xs bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700">Add note</button>
+                                <button class="btn-app btn-md btn-dark">Add note</button>
                             </form>
 
                             <form x-show="tab === 'escalate'" x-cloak method="POST" action="{{ route('checkpoints.results.follow-up', $cp) }}" class="mt-3 space-y-2">
                                 @csrf <input type="hidden" name="action" value="escalate">
                                 <textarea name="note" rows="3" maxlength="1000" placeholder="Why this case is being escalated to management…" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea>
-                                <button class="rounded-xs bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Escalate to management</button>
+                                <button class="btn-app btn-md btn-danger">Escalate to management</button>
                             </form>
                         </div>
                     @endcan
                     <div class="mt-4 flex flex-wrap gap-2 text-xs">
-                        @if($cp->employee?->email)<a href="mailto:{{ $cp->employee->email }}?subject={{ rawurlencode('Checkpoint ' . $cp->reference()) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200">Contact employee</a>@endif
-                        @can('manage employees')<a href="{{ route('employees.edit', $cp->employee_id) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200">Employee details</a>@endcan
-                        @can('view team reports')<a href="{{ route('attendance.timesheet', $cp->employee_id) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200">Timesheet</a>@endcan
+                        @if($cp->employee?->email)<a href="mailto:{{ $cp->employee->email }}?subject={{ rawurlencode('Checkpoint ' . $cp->reference()) }}" class="btn-app btn-xs btn-secondary">Contact employee</a>@endif
+                        @can('manage employees')<a href="{{ route('employees.edit', $cp->employee_id) }}" class="btn-app btn-xs btn-secondary">Employee details</a>@endcan
+                        @can('view team reports')<a href="{{ route('attendance.timesheet', $cp->employee_id) }}" class="btn-app btn-xs btn-secondary">Timesheet</a>@endcan
                     </div>
                 @endif
             </section>
@@ -239,8 +237,12 @@
         function checkpointMap({ site, fix }) {
             return {
                 init() {
+                    // Alpine calls init() itself for x-data objects — do not add x-init="init()" as well.
                     const map = L.map(this.$refs.map, { zoomControl: true, attributionControl: false });
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+                    // A view must exist before metre-radius circles can be measured for fitBounds.
+                    const centre = site ? [site.lat, site.lng] : (fix ? [fix.lat, fix.lng] : [14.6108, 121.0049]);
+                    map.setView(centre, 17);
                     const layers = [];
                     if (site) {
                         layers.push(L.circle([site.lat, site.lng], { radius: site.r, color: '#4a9bb5', weight: 1.5, fillColor: '#7ec8e3', fillOpacity: 0.2 }).addTo(map));
@@ -250,7 +252,7 @@
                         layers.push(L.circleMarker([fix.lat, fix.lng], { radius: 7, color: '#fff', weight: 2, fillColor: '#ea6c44', fillOpacity: 1 }).addTo(map).bindTooltip('Employee fix'));
                         if (fix.acc) layers.push(L.circle([fix.lat, fix.lng], { radius: fix.acc, color: '#ea6c44', weight: 1, fillColor: '#f7a88a', fillOpacity: 0.15 }).addTo(map));
                     }
-                    if (layers.length) map.fitBounds(L.featureGroup(layers).getBounds().pad(0.3)); else map.setView([14.6108, 121.0049], 13);
+                    if (layers.length) map.fitBounds(L.featureGroup(layers).getBounds().pad(0.3));
                     setTimeout(() => map.invalidateSize(), 200);
                 },
             };

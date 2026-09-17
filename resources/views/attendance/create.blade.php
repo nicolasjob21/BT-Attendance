@@ -2,6 +2,7 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Clock In / Out</h1>
     </x-slot>
+    <x-slot name="immersive">1</x-slot>
 
     {{--
         Camera-first layout (TimeMark-style): the live preview fills the stage and
@@ -9,9 +10,9 @@
         over it. On phones the stage bleeds to the viewport edges; on larger
         screens it becomes a tall rounded panel.
     --}}
-    <div x-data="clockCapture()" x-init="init()" class="-m-4 sm:mx-auto sm:my-0 sm:max-w-3xl">
+    <div x-data="clockCapture()" class="sm:mx-auto sm:max-w-3xl">
         <form method="POST" action="{{ route('attendance.store') }}" @submit="submitting = true"
-              class="relative isolate flex h-[calc(100dvh-4rem)] flex-col overflow-hidden bg-black text-white sm:h-[calc(100dvh-7.5rem)] sm:min-h-[640px] sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-white/10">
+              class="relative isolate flex h-dvh flex-col overflow-hidden bg-black text-white sm:h-[calc(100dvh-7.5rem)] sm:min-h-[640px] sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-white/10">
             @csrf
             <input type="hidden" name="log_type" x-model="logType">
             <input type="hidden" name="latitude" x-model="lat">
@@ -20,9 +21,9 @@
             <input type="hidden" name="photo" x-model="photo">
 
             {{-- ── Camera stage ─────────────────────────────────────────── --}}
-            <video x-ref="video" x-show="!photo" autoplay playsinline muted @loadedmetadata="fitVideo()"
-                   class="absolute inset-0 h-full w-full" :class="fit"></video>
-            <img x-show="photo" :src="photo" alt="Captured selfie" class="absolute inset-0 h-full w-full" :class="fit">
+            <video x-ref="video" x-show="!photo" autoplay playsinline muted
+                   class="absolute inset-0 h-full w-full object-cover"></video>
+            <img x-show="photo" :src="photo" alt="Captured selfie" class="absolute inset-0 h-full w-full object-cover">
             <canvas x-ref="canvas" class="hidden"></canvas>
 
             <div x-show="cameraError && !photo" x-cloak class="absolute inset-0 flex items-center justify-center bg-slate-900 p-6 text-center">
@@ -35,7 +36,7 @@
 
             {{-- Scrims so overlays stay legible on any background --}}
             <div class="pointer-events-none absolute inset-x-0 top-0 h-32 bg-linear-to-b from-black/70 to-transparent"></div>
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-linear-to-t from-black/85 via-black/40 to-transparent"></div>
+            <div class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-linear-to-t from-black/60 via-black/30 to-transparent"></div>
 
             {{-- ── Top bar ──────────────────────────────────────────────── --}}
             <div class="relative z-20 flex items-center justify-between gap-2 px-3 pt-3">
@@ -128,7 +129,7 @@
             </div>
 
             {{-- ── Controls ─────────────────────────────────────────────── --}}
-            <div class="relative z-20 bg-black/75 pt-1.5 backdrop-blur-md" style="padding-bottom: max(env(safe-area-inset-bottom), 0.375rem)">
+            <div class="relative z-20 bg-black/35 pt-1.5 backdrop-blur-sm" style="padding-bottom: max(env(safe-area-inset-bottom), 0.375rem)">
                 <p class="min-h-[14px] text-center text-[10px] transition-colors" :class="canSubmit() ? 'text-emerald-300' : (nudged ? 'text-accent-300 font-semibold' : 'text-white/60')" x-text="submitHint()"></p>
 
                 <div class="mt-0.5 grid grid-cols-3 items-center px-6">
@@ -203,9 +204,6 @@
                 cameraError: '',
                 submitting: false,
                 mapExpanded: false,
-                // How the feed sits in the stage: cover when the aspect is close,
-                // otherwise contain so a 3:4 phone feed isn't cropped into a zoom.
-                fit: 'object-contain',
 
                 // Live Philippine-time clock; frozen at the moment of capture.
                 clockDate: '', clockHM: '', clockAP: '', clockTimer: null,
@@ -484,13 +482,6 @@
                     if (this.lat) this.map.setView([parseFloat(this.lat), parseFloat(this.lng)], this.mapExpanded ? 18 : 17);
                 },
 
-                fitVideo() {
-                    const v = this.$refs.video, stage = v.parentElement;
-                    if (!v.videoWidth || !stage) return;
-                    const ratio = (v.videoWidth / v.videoHeight) / (stage.clientWidth / stage.clientHeight);
-                    this.fit = (ratio > 0.85 && ratio < 1.18) ? 'object-cover' : 'object-contain';
-                },
-
                 async startCamera() {
                     this.cameraError = '';
                     // Ask for a frame shaped like the stage so the preview needs
@@ -522,10 +513,23 @@
                     const video = this.$refs.video;
                     if (!video || !video.videoWidth) { this.cameraError = 'Camera not ready yet.'; return; }
                     const canvas = this.$refs.canvas;
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
+
+                    // The preview fills the stage (object-cover), so save exactly what
+                    // was on screen: crop the frame to the stage's aspect, centred —
+                    // a 16:9 laptop feed in a portrait stage is trimmed at the sides,
+                    // a phone's 3:4 feed is barely touched.
+                    const stage = video.parentElement;
+                    const stageRatio = stage.clientWidth / stage.clientHeight;
+                    let sw = video.videoWidth, sh = video.videoHeight;
+                    if (sw / sh > stageRatio) sw = Math.round(sh * stageRatio);
+                    else sh = Math.round(sw / stageRatio);
+                    const sx = Math.round((video.videoWidth - sw) / 2);
+                    const sy = Math.round((video.videoHeight - sh) / 2);
+
+                    canvas.width = sw;
+                    canvas.height = sh;
                     const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0);
+                    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
                     this.tickClock(); // freeze the displayed time at the moment of capture
                     this.photo = canvas.toDataURL('image/jpeg', 0.8);
                     this.stopCamera();

@@ -11,7 +11,7 @@
                 <th class="px-4 py-3">Deadline</th>
                 <th class="px-4 py-3 text-center">Employees</th>
                 <th class="px-4 py-3 text-center">Completed</th>
-                <th class="px-4 py-3 text-center">Non-compliant</th>
+                <th class="px-4 py-3 text-center">Not completed</th>
                 <th class="px-4 py-3">Status</th>
                 <th class="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -26,18 +26,18 @@
                     <td data-label="Project site" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ $c->site?->name }}</td>
                     <td data-label="Start" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">
                         @if($c->starts_at) {{ $c->starts_at->format('M j, g:i A') }}
-                        @elseif($c->scheduled_start_at) <span class="text-sky-700 dark:text-sky-300">{{ $c->scheduled_start_at->format('M j, g:i A') }}</span>
+                        @elseif($c->scheduled_start_at) <span class="text-sky-700 dark:text-sky-300" title="{{ $c->isRandomlyScheduled() ? 'System-generated from '.$c->randomWindowLabel() : 'Set by admin' }}">{{ $c->scheduled_start_at->format('M j, g:i A') }}</span>@if($c->isRandomlyScheduled()) <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-slate-500">auto</span>@endif
                         @else — @endif
                     </td>
                     <td data-label="Deadline" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">{{ $c->expires_at?->format('g:i A') ?? ($c->response_window_minutes . ' min window') }}</td>
                     <td data-label="Employees" class="px-4 py-3 text-center tabular-nums">{{ $c->participants_count }}</td>
                     <td data-label="Completed" class="px-4 py-3 text-center tabular-nums text-emerald-700 dark:text-emerald-300">{{ $c->completed_count ?? '—' }}</td>
-                    <td data-label="Non-compliant" class="px-4 py-3 text-center tabular-nums {{ ($c->non_compliant_count ?? 0) ? 'text-rose-700 dark:text-rose-300' : '' }}">{{ $c->non_compliant_count ?? '—' }}</td>
+                    <td data-label="Not completed" class="px-4 py-3 text-center tabular-nums {{ ($c->non_compliant_count ?? 0) ? 'text-accent-700 dark:text-accent-300' : '' }}">{{ $c->non_compliant_count ?? '—' }}</td>
                     <td data-label="Status" class="px-4 py-3"><x-campaign-status-badge :campaign="$c" /></td>
                     <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
                         <div class="flex items-center justify-end gap-1">
                             <a href="{{ route('checkpoints.show', $c) }}"
-                               class="rounded-xs border border-brand-300 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10">{{ $c->isLive() ? 'Monitor' : 'Open' }}</a>
+                               class="btn-app btn-xs btn-outline-brand">{{ $c->isLive() ? 'Monitor' : 'Open' }}</a>
                         </div>
                     </td>
                 </tr>

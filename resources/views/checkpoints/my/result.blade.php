@@ -3,16 +3,13 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Checkpoint {{ $cp->reference() }}</h1>
     </x-slot>
+    <x-slot name="back">{{ route('my-checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to My Checkpoints</x-slot>
 
     <div class="mx-auto max-w-2xl space-y-4">
-        @if(session('status'))
-            <div class="rounded-xs border px-4 py-2.5 text-sm {{ $cp->isCompleted() ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/30 dark:text-amber-200' }}">{{ session('status') }}</div>
-        @endif
         @if($errors->any())
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ $errors->first() }}</div>
         @endif
-
-        <a href="{{ route('my-checkpoints.index') }}" class="text-sm text-brand-700 hover:underline dark:text-brand-300">← My checkpoints</a>
 
         <div class="card p-5">
             <div class="flex flex-wrap items-center gap-2">
@@ -53,7 +50,7 @@
                 </select>
                 <textarea name="employee_explanation" rows="3" required maxlength="1000" placeholder="e.g. No mobile signal in the basement until 3 PM." class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">{{ old('employee_explanation', $cp->employee_explanation) }}</textarea>
                 @error('employee_explanation') <p class="text-sm text-rose-600">{{ $message }}</p> @enderror
-                <div class="flex justify-end"><button class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">{{ $cp->employee_explanation ? 'Update explanation' : 'Send explanation' }}</button></div>
+                <div class="flex justify-end"><button class="btn-app btn-md btn-brand">{{ $cp->employee_explanation ? 'Update explanation' : 'Send explanation' }}</button></div>
             </form>
         @elseif($cp->employee_explanation)
             <div class="card p-5 text-sm"><h3 class="font-semibold text-gray-900 dark:text-slate-100">Your explanation</h3><p class="mt-1 text-gray-700 dark:text-slate-200">“{{ $cp->employee_explanation }}”</p></div>

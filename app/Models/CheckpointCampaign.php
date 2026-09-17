@@ -127,6 +127,22 @@ class CheckpointCampaign extends Model
         return $this->status === self::DRAFT && $this->scheduled_start_at !== null;
     }
 
+    /** True when the start time was drawn by the system rather than typed by the admin. */
+    public function isRandomlyScheduled(): bool
+    {
+        return $this->schedule_mode === 'random' && $this->scheduled_start_at !== null;
+    }
+
+    /** "8:30 AM – 5:30 PM" for the window the random time was drawn from. */
+    public function randomWindowLabel(): ?string
+    {
+        if (! $this->random_window_start || ! $this->random_window_end) {
+            return null;
+        }
+
+        return Carbon::parse($this->random_window_start)->format('g:i A').' – '.Carbon::parse($this->random_window_end)->format('g:i A');
+    }
+
     public function isActive(): bool
     {
         return $this->status === self::ACTIVE;

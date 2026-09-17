@@ -3,7 +3,7 @@
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Employees</h1>
     </x-slot>
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
 
         {{-- Import error report --}}
         @if(session('import_errors') && count(session('import_errors')))
@@ -18,7 +18,7 @@
         {{-- Toolbar --}}
         <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <form method="GET" action="{{ route('employees.index') }}" class="grid grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
-                <input type="text" name="search" value="{{ $search }}" placeholder="Search name, email, or no.…"
+                <input type="text" name="search" value="{{ $search }}" placeholder="Search name, username, email, or no.…"
                        class="col-span-2 w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto sm:min-w-[200px] sm:flex-1">
                 <select name="type" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
                     <option value="">All types</option>
@@ -31,15 +31,18 @@
                     <option value="inactive" @selected($status === 'inactive')>Inactive</option>
                     <option value="on_leave" @selected($status === 'on_leave')>On leave</option>
                 </select>
-                <button class="col-span-2 w-full rounded-xs bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 sm:w-auto">Filter</button>
+                <button class="col-span-2 w-full btn-app btn-md btn-dark sm:w-auto">Filter</button>
                 @if($search || $type || $status)
                     <a href="{{ route('employees.index') }}" class="col-span-2 text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
                 @endif
             </form>
 
             <div class="grid grid-cols-2 gap-2 sm:flex">
-                <a href="{{ route('employees.import') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-center text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Import Excel</a>
-                <a href="{{ route('employees.create') }}" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-center text-sm font-medium text-white hover:from-brand-700 hover:to-accent-600">+ Add Employee</a>
+                @can('export employees')
+                    <a href="{{ route('employees.export') }}" class="btn-app btn-md btn-secondary">Export Excel</a>
+                @endcan
+                <a href="{{ route('employees.import') }}" class="btn-app btn-md btn-secondary">Import Excel</a>
+                <a href="{{ route('employees.create') }}" class="btn-app btn-md btn-brand">+ Add Employee</a>
             </div>
         </div>
 
@@ -64,17 +67,17 @@
                     <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
                         @forelse($employees as $emp)
                             <tr>
-                                <td class="cell-head px-4 py-3">
+                                <td class="cell-head px-4 py-3 whitespace-nowrap">
                                     <div class="font-medium text-gray-900 dark:text-slate-100">{{ $emp->full_name }}</div>
-                                    <div class="text-gray-500 dark:text-slate-400">{{ $emp->email }}</div>
+                                    <div class="text-gray-500 dark:text-slate-400">{{ $emp->user?->username ?? $emp->email }}</div>
                                 </td>
-                                <td data-label="No." class="px-4 py-3 text-gray-500 dark:text-slate-400">{{ $emp->employee_no }}</td>
+                                <td data-label="No." class="px-4 py-3 text-gray-500 dark:text-slate-400 whitespace-nowrap">{{ $emp->employee_no }}</td>
                                 <td data-label="Type" class="px-4 py-3">
-                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ $emp->employee_type === 'technical' ? 'bg-brand-100 text-brand-800' : 'bg-slate-100 text-slate-700' }} capitalize">
+                                    <span class="badge {{ $emp->employee_type === 'technical' ? 'badge-info' : 'badge-neutral' }}">
                                         {{ $emp->employee_type }}
                                     </span>
                                 </td>
-                                <td data-label="Role" class="px-4 py-3 capitalize text-gray-600 dark:text-slate-300">{{ $emp->user?->getRoleNames()->first() ?? '—' }}</td>
+                                <td data-label="Role" class="px-4 py-3 text-gray-600 dark:text-slate-300">{{ \App\Support\RoleMatrix::ROLE_LABELS[$emp->user?->getRoleNames()->first()] ?? ($emp->user?->getRoleNames()->first() ?? '—') }}</td>
                                 <td data-label="Schedule" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ $emp->schedule?->name ?? '—' }}</td>
                                 <td data-label="Project site" class="px-4 py-3 text-gray-700 dark:text-slate-200">
                                     @if($emp->activeAssignment?->site)
@@ -86,17 +89,16 @@
                                 <td data-label="Monthly salary" class="px-4 py-3 text-right tabular-nums text-gray-900 dark:text-slate-100">₱{{ number_format($emp->monthly_salary, 2) }}</td>
                                 <td data-label="Status" class="px-4 py-3"><x-status-badge :status="$emp->status" /></td>
                                 <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
-                                    <div class="flex items-center justify-end gap-1">
-                                        @can('view team reports')
-                                            <a href="{{ route('attendance.timesheet', $emp) }}"
-                                               class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Timesheet</a>
-                                        @endcan
-                                        @can('run payroll')
-                                            <a href="{{ route('employees.salary-history', $emp) }}"
-                                               class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">Salary</a>
-                                        @endcan
-                                        <a href="{{ route('employees.edit', $emp) }}"
-                                           class="rounded-xs border border-brand-300 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10">Edit</a>
+                                    <div class="flex justify-end">
+                                        <div class="row-actions">
+                                            @can('view team reports')
+                                                <a href="{{ route('attendance.timesheet', $emp) }}">Timesheet</a>
+                                            @endcan
+                                            @can('run payroll')
+                                                <a href="{{ route('employees.salary-history', $emp) }}">Salary</a>
+                                            @endcan
+                                            <a href="{{ route('employees.edit', $emp) }}" class="is-primary">Edit</a>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>

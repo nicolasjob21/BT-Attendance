@@ -107,8 +107,51 @@ class CampaignManager
             throw ValidationException::withMessages(['employees' => 'Add at least one employee before scheduling.']);
         }
 
-        $campaign->update(['scheduled_start_at' => $at]);
-        $this->audit->campaign($campaign, 'scheduled', $by, ['scheduled_start_at' => $at->toDateTimeString()]);
+        $campaign->update(['scheduled_start_at' => $at, 'schedule_mode' => 'manual', 'random_window_start' => null, 'random_window_end' => null]);
+        $this->audit->campaign($campaign, 'scheduled', $by, ['scheduled_start_at' => $at->toDateTimeString(), 'mode' => 'manual']);
+
+        return $campaign;
+    }
+
+    /**
+     * Let the system pick: draw the start time at random (CSPRNG) inside the
+     * admin's window on the given date, leaving room for the response window
+     * before the window ends. The admin sees the drawn time on the campaign
+     * page so they can give the team leader a heads-up; employees do not.
+     */
+    public function scheduleRandom(CheckpointCampaign $campaign, Carbon $date, string $from, string $to, User $by): CheckpointCampaign
+    {
+        abort_unless($campaign->isDraft(), 422, 'Only a draft checkpoint can be scheduled.');
+        if ($campaign->participants()->count() === 0) {
+            throw ValidationException::withMessages(['employees' => 'Add at least one employee before scheduling.']);
+        }
+
+        $windowStart = $date->copy()->setTimeFromTimeString($from);
+        $windowEnd = $date->copy()->setTimeFromTimeString($to);
+
+        // Never in the past, and the whole response window must fit before the window closes.
+        $earliest = $windowStart->max(Carbon::now()->addMinute())->startOfMinute();
+        $latest = $windowEnd->copy()->subMinutes($campaign->response_window_minutes)->startOfMinute();
+
+        if ($latest->lt($earliest)) {
+            throw ValidationException::withMessages([
+                'random_window' => 'That window is too short (or already over) for a '.$campaign->response_window_minutes.'-minute checkpoint. Widen it or pick a later time.',
+            ]);
+        }
+
+        $minutes = (int) $earliest->diffInMinutes($latest);
+        $at = $earliest->copy()->addMinutes(random_int(0, $minutes));
+
+        $campaign->update([
+            'scheduled_start_at' => $at,
+            'schedule_mode' => 'random',
+            'random_window_start' => $windowStart->format('H:i:s'),
+            'random_window_end' => $windowEnd->format('H:i:s'),
+        ]);
+        $this->audit->campaign($campaign, 'scheduled', $by, [
+            'scheduled_start_at' => $at->toDateTimeString(), 'mode' => 'random',
+            'window' => $windowStart->format('H:i').'–'.$windowEnd->format('H:i'),
+        ]);
 
         return $campaign;
     }

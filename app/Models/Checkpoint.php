@@ -200,6 +200,30 @@ class Checkpoint extends Model
         return in_array($this->status, self::COMPLETED_STATUSES, true);
     }
 
+    /**
+     * The one-word outcome HR asks for: completed · not_completed · waiting.
+     * "Waiting" only while the campaign window is still open; once it closes
+     * everything that is not a completion is simply "not completed" — the
+     * detailed status (missed, outside geofence, …) explains why.
+     */
+    public function result(): string
+    {
+        if ($this->isCompleted()) {
+            return 'completed';
+        }
+        $campaign = $this->relationLoaded('campaign') ? $this->campaign : $this->campaign()->first();
+        if ($campaign && $campaign->isLive() && $this->isWaiting()) {
+            return 'waiting';
+        }
+
+        return 'not_completed';
+    }
+
+    public function resultLabel(): string
+    {
+        return ['completed' => 'Completed', 'waiting' => 'Waiting', 'not_completed' => 'Not completed'][$this->result()];
+    }
+
     public function isWaiting(): bool
     {
         return in_array($this->status, self::WAITING_STATUSES, true);

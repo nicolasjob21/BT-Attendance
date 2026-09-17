@@ -4,9 +4,6 @@
     </x-slot>
 
     <div class="mx-auto max-w-4xl space-y-5">
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
 
         @forelse($active as $cp)
             @php $c = $cp->campaign; @endphp
@@ -32,7 +29,7 @@
                 <p class="font-medium text-gray-900 dark:text-slate-100">No checkpoint is active right now.</p>
                 <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">When HR activates a live presence checkpoint at your project site, you'll get an in-app alert here and on every page. Keep location and camera permissions on.</p>
                 <div class="mt-3" x-show="perm === 'default'">
-                    <button type="button" @click="Notification.requestPermission().then(p => perm = p)" class="rounded-xs border border-brand-300 px-3 py-1.5 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300">Enable browser notifications</button>
+                    <button type="button" @click="Notification.requestPermission().then(p => perm = p)" class="btn-app btn-sm btn-outline-brand">Enable browser notifications</button>
                 </div>
                 <p class="mt-2 text-[11px] text-emerald-700 dark:text-emerald-300" x-show="perm === 'granted'" x-cloak>Browser notifications are on.</p>
                 <p class="mt-2 text-[11px] text-rose-700 dark:text-rose-300" x-show="perm === 'denied'" x-cloak>Browser notifications are blocked — enable them in your browser's site settings. The in-app alert still works.</p>
@@ -64,7 +61,7 @@
                                 </td>
                                 <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
                                     <div class="flex justify-end">
-                                        <a href="{{ route('my-checkpoints.show', $cp) }}" class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">
+                                        <a href="{{ route('my-checkpoints.show', $cp) }}" class="btn-app btn-xs btn-secondary">
                                             {{ $cp->isNonCompliant() && ! $cp->reviewed_at && ! $cp->employee_explanation ? 'Explain' : 'Details' }}
                                         </a>
                                     </div>

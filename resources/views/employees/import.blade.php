@@ -2,6 +2,8 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Import Employees</h1>
     </x-slot>
+    <x-slot name="back">{{ route('employees.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Employees</x-slot>
 
     <div class="mx-auto max-w-2xl space-y-5">
         <div class="card p-6">
@@ -15,6 +17,7 @@
                             <tr>
                                 <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">first_name</th>
                                 <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">last_name</th>
+                                <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">username</th>
                                 <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">email</th>
                                 <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">employee_type</th>
                                 <th class="border-b border-gray-200 dark:border-slate-700 px-3 py-1.5 text-left">monthly_salary</th>
@@ -22,10 +25,10 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td class="px-3 py-1.5">Juan</td><td class="px-3 py-1.5">Dela Cruz</td><td class="px-3 py-1.5">juan@brite-tsi.com</td><td class="px-3 py-1.5">technical</td><td class="px-3 py-1.5">25000</td>
+                                <td class="px-3 py-1.5">Juan</td><td class="px-3 py-1.5">Dela Cruz</td><td class="px-3 py-1.5">brite-juan</td><td class="px-3 py-1.5">juan@brite-tsi.com</td><td class="px-3 py-1.5">technical</td><td class="px-3 py-1.5">25000</td>
                             </tr>
                             <tr>
-                                <td class="px-3 py-1.5">Maria</td><td class="px-3 py-1.5">Santos</td><td class="px-3 py-1.5">maria@brite-tsi.com</td><td class="px-3 py-1.5">admin</td><td class="px-3 py-1.5">20000</td>
+                                <td class="px-3 py-1.5">Maria</td><td class="px-3 py-1.5">Santos</td><td class="px-3 py-1.5 text-gray-400 dark:text-slate-500 italic">(blank → brite-maria)</td><td class="px-3 py-1.5">maria@brite-tsi.com</td><td class="px-3 py-1.5">admin</td><td class="px-3 py-1.5">20000</td>
                             </tr>
                         </tbody>
                     </table>
@@ -33,7 +36,8 @@
                 <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-gray-500 dark:text-slate-400">
                     <li><code>employee_type</code> must be <code>admin</code> or <code>technical</code> (defaults to admin).</li>
                     <li>Everyone imported gets the <strong>Employee</strong> role and the matching default schedule.</li>
-                    <li>Duplicate or invalid emails are skipped and reported.</li>
+                    <li><code>username</code> is the login name (company prefix + first name, e.g. <code>brite-juan</code>). Leave it blank to generate one.</li>
+                    <li>Duplicate or invalid emails and usernames are skipped and reported.</li>
                 </ul>
             </div>
 
@@ -60,8 +64,8 @@
                 </div>
 
                 <div class="flex justify-end gap-2 pt-2">
-                    <a href="{{ route('employees.index') }}" class="rounded-xs border border-gray-300 dark:border-slate-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/60">Cancel</a>
-                    <button type="submit" class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-4 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">Import</button>
+                    <a href="{{ route('employees.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
+                    <button type="submit" class="btn-app btn-md btn-brand">Import</button>
                 </div>
             </form>
         </div>

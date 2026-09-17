@@ -2,12 +2,10 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · Settings</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Check Point</x-slot>
 
-    <div class="mx-auto max-w-3xl space-y-4">
-        <a href="{{ route('checkpoints.index') }}" class="text-sm text-brand-700 hover:underline dark:text-brand-300">← Back to Check Point</a>
-        @if(session('status'))
-            <div class="rounded-xs border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ session('status') }}</div>
-        @endif
+    <div class="page-form space-y-4">
 
         <form method="POST" action="{{ route('checkpoints.settings.update') }}" class="card space-y-5 p-5">
             @csrf @method('PUT')
@@ -27,7 +25,7 @@
                 GPS accuracy threshold follows the attendance setting (<strong>{{ config('attendance.min_gps_accuracy_m') }} m</strong>). Deadlines are enforced by the server; run <code>php artisan schedule:work</code> so scheduled starts and expirations fire on time.
             </div>
             <div class="flex justify-end">
-                <button class="rounded-xs bg-linear-to-r from-brand-600 to-accent-500 px-5 py-2 text-sm font-semibold text-white hover:from-brand-700 hover:to-accent-600">Save settings</button>
+                <button class="btn-app btn-md btn-brand px-5">Save settings</button>
             </div>
         </form>
     </div>

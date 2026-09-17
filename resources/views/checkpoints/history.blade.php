@@ -2,8 +2,10 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · History</h1>
     </x-slot>
+    <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
+    <x-slot name="backLabel">Back to Check Point</x-slot>
 
-    <div class="mx-auto max-w-7xl space-y-4">
+    <div class="page space-y-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <form method="GET" class="flex flex-wrap items-center gap-2">
                 <select name="status" onchange="this.form.submit()" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
@@ -21,7 +23,6 @@
                 <input type="date" name="to" value="{{ $to }}" onchange="this.form.submit()" aria-label="To date" class="rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
                 @if($status || $siteId || $from || $to)<a href="{{ route('checkpoints.history') }}" class="text-sm text-gray-500 hover:underline dark:text-slate-400">Clear</a>@endif
             </form>
-            <a href="{{ route('checkpoints.index') }}" class="text-sm text-brand-700 hover:underline dark:text-brand-300">← Back to Check Point</a>
         </div>
 
         <div class="card overflow-hidden">

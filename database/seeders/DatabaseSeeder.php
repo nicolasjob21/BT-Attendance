@@ -11,8 +11,6 @@ use App\Models\Site;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
-use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 class DatabaseSeeder extends Seeder
@@ -21,50 +19,13 @@ class DatabaseSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        $this->seedRolesAndPermissions();
-        $this->call(CheckpointPermissionSeeder::class);
+        RolePermissionSeeder::syncDefaults(); // roles & permissions from App\Support\RoleMatrix
         $schedules = $this->seedSchedules();
         $this->seedSites();
         $this->seedLeaveTypes();
         $this->seedContributionRates();
         $this->seedPayrollPeriods();
         $this->seedDemoUsers($schedules);
-    }
-
-    private function seedRolesAndPermissions(): void
-    {
-        $permissions = [
-            'clock attendance',
-            'request leave',
-            'request overtime',
-            'view own payslip',
-            'approve requests',      // leave & OT
-            'view team reports',
-            'manage employees',
-            'run payroll',
-            'manage settings',       // schedules, sites, leave types, contribution rates
-            'manage users',          // accounts & roles
-        ];
-        foreach ($permissions as $p) {
-            Permission::findOrCreate($p, 'web');
-        }
-
-        // Self-service permissions every employee has.
-        $selfService = ['clock attendance', 'request leave', 'request overtime', 'view own payslip'];
-
-        // Three roles only. HR and the CEO/super-admin get the management screens
-        // (Attendance Log, Employees, Payroll); employees get self-service only.
-        $roles = [
-            'employee' => $selfService,
-            'hr' => array_merge($selfService, [
-                'approve requests', 'view team reports', 'manage employees', 'run payroll', 'manage settings',
-            ]),
-            'superadmin' => $permissions, // CEO — full access, incl. managing users
-        ];
-
-        foreach ($roles as $name => $perms) {
-            Role::findOrCreate($name, 'web')->syncPermissions($perms);
-        }
     }
 
     private function seedSchedules(): array
@@ -178,17 +139,19 @@ class DatabaseSeeder extends Seeder
 
     private function seedDemoUsers(array $schedules): void
     {
-        // [name, email, role, employee_type, schedule, monthly_salary]
+        // [name, username, email, role, employee_type, schedule, monthly_salary]
         $people = [
-            ['CEO / Super Admin', 'admin@brite-tsi.com', 'superadmin', 'admin', 'admin', 80000],
-            ['HR Officer', 'hr@brite-tsi.com', 'hr', 'admin', 'admin', 35000],
-            ['Technical Staff', 'tech@brite-tsi.com', 'employee', 'technical', 'flexible', 25000],
+            ['CEO / Super Admin', 'brite-admin', 'admin@brite-tsi.com', 'superadmin', 'admin', 'admin', 80000],
+            ['Developer', 'brite-dev', 'dev@brite-tsi.com', 'developer', 'admin', 'admin', 40000],
+            ['HR Officer', 'brite-hr', 'hr@brite-tsi.com', 'admin', 'admin', 'admin', 35000],
+            ['Technical Staff', 'brite-tech', 'tech@brite-tsi.com', 'employee', 'technical', 'flexible', 25000],
         ];
 
         $n = 1;
-        foreach ($people as [$name, $email, $role, $type, $sched, $salary]) {
+        foreach ($people as [$name, $username, $email, $role, $type, $sched, $salary]) {
             $user = User::create([
                 'name' => $name,
+                'username' => $username,
                 'email' => $email,
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
@@ -205,7 +168,6 @@ class DatabaseSeeder extends Seeder
                 'email' => $email,
                 'employee_type' => $type,
                 'schedule_id' => $schedules[$sched]->id,
-                'supervisor_id' => null,
                 'monthly_salary' => $salary,
                 'daily_rate' => round($salary / 22, 2),
                 'date_hired' => '2025-01-06',

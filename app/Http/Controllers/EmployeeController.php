@@ -6,6 +6,8 @@ use App\Models\Employee;
 use App\Models\Schedule;
 use App\Models\Site;
 use App\Models\User;
+use App\Services\Payroll\PayrollRates;
+use App\Support\RoleMatrix;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -25,13 +27,14 @@ class EmployeeController extends Controller
         $type = $request->string('type')->toString();
         $status = $request->string('status')->toString();
 
-        $employees = Employee::with(['schedule', 'supervisor', 'user', 'activeAssignment.site:id,name'])
+        $employees = Employee::with(['schedule', 'user', 'activeAssignment.site:id,name'])
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('first_name', 'like', "%{$search}%")
                         ->orWhere('last_name', 'like', "%{$search}%")
                         ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('employee_no', 'like', "%{$search}%");
+                        ->orWhere('employee_no', 'like', "%{$search}%")
+                        ->orWhereHas('user', fn ($u) => $u->where('username', 'like', "%{$search}%"));
                 });
             })
             ->when($type, fn ($q) => $q->where('employee_type', $type))
@@ -50,25 +53,30 @@ class EmployeeController extends Controller
 
     public function store(Request $request)
     {
+        $this->normalizeUsername($request);
         $data = $request->validate($this->rules());
 
         $tempPassword = ($data['password'] ?? null) ?: Str::password(10);
+        $username = ($data['username'] ?? null) ?: User::suggestUsername($data['first_name']);
 
-        DB::transaction(function () use ($data, $tempPassword, &$employee) {
+        DB::transaction(function () use ($data, $username, $tempPassword, &$employee) {
             $user = User::create([
                 'name' => trim("{$data['first_name']} {$data['last_name']}"),
+                'username' => $username,
                 'email' => $data['email'],
                 'password' => Hash::make($tempPassword),
                 'email_verified_at' => now(),
             ]);
-            $user->assignRole($this->safeRole($data['role']));
+            // Add Employee always creates a staff account. The authorized roles
+            // (Super Admin, Admin, Developer) are assigned in User Management.
+            $user->assignRole(RoleMatrix::EMPLOYEE);
 
             $employee = Employee::create($this->employeeAttributes($data, $user->id));
-            $employee->update(['employee_no' => $employee->employee_no ?: 'EMP-' . str_pad((string) $employee->id, 4, '0', STR_PAD_LEFT)]);
+            $employee->update(['employee_no' => $employee->employee_no ?: 'EMP-'.str_pad((string) $employee->id, 4, '0', STR_PAD_LEFT)]);
         });
 
         return redirect()->route('employees.index')
-            ->with('status', "Employee added. Login: {$data['email']} · temporary password: {$tempPassword}");
+            ->with('status', "Employee added. Username: {$username} · temporary password: {$tempPassword}");
     }
 
     public function edit(Employee $employee)
@@ -84,6 +92,7 @@ class EmployeeController extends Controller
 
     public function update(Request $request, Employee $employee)
     {
+        $this->normalizeUsername($request);
         $data = $request->validate($this->rules($employee));
 
         DB::transaction(function () use ($data, $employee) {
@@ -92,12 +101,12 @@ class EmployeeController extends Controller
             if ($user = $employee->user) {
                 $user->update([
                     'name' => trim("{$data['first_name']} {$data['last_name']}"),
+                    'username' => ($data['username'] ?? null) ?: $user->username,
                     'email' => $data['email'],
                 ]);
                 if (! empty($data['password'])) {
                     $user->update(['password' => Hash::make($data['password'])]);
                 }
-                $user->syncRoles([$this->safeRole($data['role'])]);
             }
         });
 
@@ -119,25 +128,58 @@ class EmployeeController extends Controller
         return view('employees.import');
     }
 
+    /** Employee list as Excel (`export employees`). */
+    public function export()
+    {
+        $employees = Employee::with(['schedule', 'user', 'activeAssignment.site:id,name'])->orderBy('last_name')->get();
+
+        $headers = ['employee_no', 'first_name', 'last_name', 'username', 'email', 'phone', 'employee_type', 'role', 'schedule', 'project_site', 'monthly_salary', 'date_hired', 'status'];
+        $rows = $employees->map(fn (Employee $e) => [
+            $e->employee_no, $e->first_name, $e->last_name, $e->user?->username, $e->email, $e->phone,
+            $e->employee_type, $e->user?->getRoleNames()->first(), $e->schedule?->name,
+            $e->activeAssignment?->site?->name, (float) $e->monthly_salary, $e->date_hired, $e->status,
+        ])->all();
+
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Employees');
+        $sheet->fromArray([$headers, ...$rows], null, 'A1');
+        $last = chr(ord('A') + count($headers) - 1);
+        $sheet->getStyle("A1:{$last}1")->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle("A1:{$last}1")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0E7490');
+        foreach (range('A', $last) as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        $sheet->freezePane('A2');
+
+        $writer = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, 'employees-'.now()->format('Y-m-d').'.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
     public function importTemplate()
     {
-        $headers = ['first_name', 'last_name', 'email', 'employee_type', 'monthly_salary'];
+        $headers = ['first_name', 'last_name', 'username', 'email', 'employee_type', 'monthly_salary'];
         $samples = [
-            ['Juan', 'Dela Cruz', 'juan@brite-tsi.com', 'technical', 25000],
-            ['Maria', 'Santos', 'maria@brite-tsi.com', 'admin', 20000],
+            ['Juan', 'Dela Cruz', 'brite-juan', 'juan@brite-tsi.com', 'technical', 25000],
+            ['Maria', 'Santos', '', 'maria@brite-tsi.com', 'admin', 20000],
         ];
 
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Employees');
         $sheet->fromArray([$headers, ...$samples], null, 'A1');
 
         // Style the header row: bold, brand fill, centered.
-        $sheet->getStyle('A1:E1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
-        $sheet->getStyle('A1:E1')->getFill()->setFillType(Fill::FILL_SOLID)
+        $sheet->getStyle('A1:F1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:F1')->getFill()->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB('FF0E7490'); // brand-700-ish teal
-        $sheet->getStyle('A1:E1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        foreach (range('A', 'E') as $col) {
+        $sheet->getStyle('A1:F1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        foreach (range('A', 'F') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
         $sheet->freezePane('A2'); // keep header visible while scrolling
@@ -171,6 +213,7 @@ class EmployeeController extends Controller
         $skipped = 0;
         $errors = [];
         $rowNum = 1;
+        $usedUsernames = []; // usernames assigned earlier in this same file
 
         foreach (array_slice($rows, 1) as $row) {
             $rowNum++;
@@ -181,6 +224,7 @@ class EmployeeController extends Controller
             $r = array_combine(array_slice($header, 0, count($row)), $row);
 
             $email = trim($r['email'] ?? '');
+            $username = User::normalizeUsername($r['username'] ?? '');
             $first = trim($r['first_name'] ?? '');
             $last = trim($r['last_name'] ?? '');
             $type = in_array(($r['employee_type'] ?? ''), ['admin', 'technical'], true) ? $r['employee_type'] : 'admin';
@@ -189,17 +233,37 @@ class EmployeeController extends Controller
             if ($email === '' || $first === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $skipped++;
                 $errors[] = "Row {$rowNum}: missing/invalid name or email.";
+
                 continue;
             }
             if (User::where('email', $email)->exists() || Employee::where('email', $email)->exists()) {
                 $skipped++;
                 $errors[] = "Row {$rowNum}: {$email} already exists.";
+
                 continue;
             }
+            if ($username !== '') {
+                if (! preg_match(User::USERNAME_PATTERN, $username)) {
+                    $skipped++;
+                    $errors[] = "Row {$rowNum}: username '{$username}' may only use letters, numbers, - _ . (e.g. brite-juan).";
 
-            DB::transaction(function () use ($first, $last, $email, $type, $salary, $request, $adminSched, $flexSched) {
+                    continue;
+                }
+                if (in_array($username, $usedUsernames, true) || User::where('username', $username)->exists()) {
+                    $skipped++;
+                    $errors[] = "Row {$rowNum}: username '{$username}' already exists.";
+
+                    continue;
+                }
+            } else {
+                $username = User::suggestUsername($first, $usedUsernames);
+            }
+            $usedUsernames[] = $username;
+
+            DB::transaction(function () use ($first, $last, $username, $email, $type, $salary, $request, $adminSched, $flexSched) {
                 $user = User::create([
                     'name' => trim("{$first} {$last}"),
+                    'username' => $username,
                     'email' => $email,
                     'password' => Hash::make($request->string('default_password')),
                     'email_verified_at' => now(),
@@ -214,15 +278,15 @@ class EmployeeController extends Controller
                     'employee_type' => $type,
                     'schedule_id' => ($type === 'technical' ? $flexSched : $adminSched)?->id,
                     'monthly_salary' => $salary,
-                    'daily_rate' => round($salary / 22, 2),
+                    'daily_rate' => round($salary / max(1, PayrollRates::get('working_days_per_month')), 2),
                     'status' => 'active',
                 ]);
-                $emp->update(['employee_no' => 'EMP-' . str_pad((string) $emp->id, 4, '0', STR_PAD_LEFT)]);
+                $emp->update(['employee_no' => 'EMP-'.str_pad((string) $emp->id, 4, '0', STR_PAD_LEFT)]);
             });
             $created++;
         }
 
-        $msg = "Imported {$created} employees" . ($skipped ? ", skipped {$skipped}." : '.');
+        $msg = "Imported {$created} employees".($skipped ? ", skipped {$skipped}." : '.');
 
         return redirect()->route('employees.index')
             ->with('status', $msg)
@@ -231,6 +295,12 @@ class EmployeeController extends Controller
 
     // ---- helpers ----
 
+    /** Usernames are stored lowercase; normalise before the unique/regex checks run. */
+    private function normalizeUsername(Request $request): void
+    {
+        $request->merge(['username' => User::normalizeUsername($request->input('username')) ?: null]);
+    }
+
     private function rules(?Employee $employee = null): array
     {
         $userId = $employee?->user_id;
@@ -238,6 +308,10 @@ class EmployeeController extends Controller
         return [
             'first_name' => ['required', 'string', 'max:100'],
             'last_name' => ['required', 'string', 'max:100'],
+            'username' => [
+                'nullable', 'string', 'max:60', 'regex:'.User::USERNAME_PATTERN,
+                Rule::unique('users', 'username')->ignore($userId),
+            ],
             'email' => [
                 'required', 'email', 'max:255',
                 Rule::unique('users', 'email')->ignore($userId),
@@ -246,10 +320,8 @@ class EmployeeController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'employee_type' => ['required', 'in:admin,technical'],
             'schedule_id' => ['nullable', 'exists:schedules,id'],
-            'supervisor_id' => ['nullable', 'exists:employees,id'],
             'monthly_salary' => ['required', 'numeric', 'min:0'],
             'date_hired' => ['nullable', 'date'],
-            'role' => ['required', 'string'],
             'status' => ['required', 'in:active,inactive,on_leave'],
             'password' => [$employee ? 'nullable' : 'nullable', 'string', 'min:8'],
         ];
@@ -265,32 +337,17 @@ class EmployeeController extends Controller
             'phone' => $data['phone'] ?? null,
             'employee_type' => $data['employee_type'],
             'schedule_id' => $data['schedule_id'] ?? null,
-            'supervisor_id' => $data['supervisor_id'] ?? null,
             'monthly_salary' => $data['monthly_salary'],
-            'daily_rate' => round(((float) $data['monthly_salary']) / 22, 2),
+            'daily_rate' => round(((float) $data['monthly_salary']) / max(1, PayrollRates::get('working_days_per_month')), 2),
             'date_hired' => $data['date_hired'] ?? null,
             'status' => $data['status'],
         ];
-    }
-
-    /** Only the CEO / super admin may assign privileged roles. */
-    private function safeRole(string $role): string
-    {
-        $allowed = auth()->user()->hasRole('superadmin')
-            ? ['employee', 'hr', 'superadmin']
-            : ['employee'];
-
-        return in_array($role, $allowed, true) ? $role : 'employee';
     }
 
     private function formData(): array
     {
         return [
             'schedules' => Schedule::orderBy('name')->get(),
-            'supervisors' => Employee::where('status', 'active')->orderBy('last_name')->get(),
-            'roles' => auth()->user()->hasRole('superadmin')
-                ? ['employee' => 'Employee', 'hr' => 'HR', 'superadmin' => 'Super Admin (CEO)']
-                : ['employee' => 'Employee'],
         ];
     }
 }

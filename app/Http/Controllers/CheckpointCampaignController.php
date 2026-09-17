@@ -237,6 +237,20 @@ class CheckpointCampaignController extends Controller
         return back()->with('status', 'Checkpoint scheduled to start automatically at '.$at->format('M j, g:i A').'.');
     }
 
+    /** "Let the system pick": random start inside the admin's window on a date. */
+    public function scheduleRandom(Request $request, CheckpointCampaign $campaign)
+    {
+        $data = $request->validate([
+            'date' => ['required', 'date'],
+            'window_start' => ['required', 'date_format:H:i'],
+            'window_end' => ['required', 'date_format:H:i', 'after:window_start'],
+        ]);
+
+        $c = $this->manager->scheduleRandom($campaign, Carbon::parse($data['date']), $data['window_start'], $data['window_end'], $request->user());
+
+        return back()->with('status', 'The system picked '.$c->scheduled_start_at->format('M j, g:i A').' — give the team leader a heads-up before then.');
+    }
+
     public function pause(Request $request, CheckpointCampaign $campaign)
     {
         $this->manager->pause($campaign, $request->user(), $request->input('reason'));

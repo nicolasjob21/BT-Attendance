@@ -38,16 +38,6 @@ class Employee extends Model
         return $this->belongsTo(Schedule::class);
     }
 
-    public function supervisor(): BelongsTo
-    {
-        return $this->belongsTo(Employee::class, 'supervisor_id');
-    }
-
-    public function subordinates(): HasMany
-    {
-        return $this->hasMany(Employee::class, 'supervisor_id');
-    }
-
     public function attendanceLogs(): HasMany
     {
         return $this->hasMany(AttendanceLog::class);

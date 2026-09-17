@@ -4,6 +4,8 @@
     <x-slot name="header">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Monthly Timesheet</h1>
     </x-slot>
+    <x-slot name="back">{{ $employee->id === auth()->user()->employee?->id ? route('attendance.index') : (auth()->user()->can('view team reports') ? route('attendance.monitor') : route('dashboard')) }}</x-slot>
+    <x-slot name="backLabel">Back</x-slot>
 
     @php
         $prev = $month->copy()->subMonth()->format('Y-m');
@@ -12,7 +14,7 @@
         $fmtH = fn (int $mins) => $mins > 0 ? WorkHours::label($mins) : '—';
     @endphp
 
-    <div class="mx-auto max-w-6xl space-y-4">
+    <div class="page space-y-4">
 
         {{-- Header: who + month stepper --}}
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -34,7 +36,7 @@
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                     </a>
                 </div>
-                <a href="{{ $link(now()->format('Y-m')) }}" class="rounded-xs border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60">This month</a>
+                <a href="{{ $link(now()->format('Y-m')) }}" class="btn-app btn-md btn-secondary">This month</a>
                 @if($canReview)
                     <a href="{{ route('attendance.monitor', ['date' => $month->isSameMonth(now()) ? now()->toDateString() : $month->toDateString()]) }}" class="text-sm text-brand-600 hover:underline dark:text-brand-300">Daily log</a>
                 @endif
@@ -84,7 +86,7 @@
                                     <span class="font-medium {{ $muted ? '' : 'text-gray-900 dark:text-slate-100' }}">{{ $day['date']->format('D') }}</span>
                                     <span class="{{ $muted ? '' : 'text-gray-500 dark:text-slate-400' }}"> {{ $day['date']->format('M j') }}</span>
                                     @if($day['rest_day'] && $day['in'])
-                                        <span class="ml-1 rounded-full bg-accent-100 px-1.5 text-[10px] font-medium text-accent-800 dark:bg-accent-900/40 dark:text-accent-200">rest day</span>
+                                        <span class="badge badge-danger ml-1">rest day</span>
                                     @endif
                                 </td>
 
@@ -151,21 +153,21 @@
                                 <td data-label="Status" class="px-4 py-2.5">
                                     @switch($day['status'])
                                         @case('present')
-                                            <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Present</span>
+                                            <span class="badge badge-success">Present</span>
                                             @break
                                         @case('open')
-                                            <span class="inline-flex items-center rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-900/40 dark:text-brand-200">Clocked in</span>
+                                            <span class="badge badge-info">Clocked in</span>
                                             @break
                                         @case('incomplete')
-                                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">No time out</span>
+                                            <span class="badge badge-warn">No time out</span>
                                             @break
                                         @case('leave')
-                                            <span class="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                            <span class="badge badge-info">
                                                 Leave{{ $day['leave']?->leaveType?->code ? ' · ' . $day['leave']->leaveType->code : '' }}
                                             </span>
                                             @break
                                         @case('absent')
-                                            <span class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Absent</span>
+                                            <span class="badge badge-danger">Absent</span>
                                             @break
                                         @case('rest')
                                             <span class="text-xs">Rest day</span>

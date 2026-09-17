@@ -8,7 +8,7 @@
                 <th class="px-4 py-3">Employee</th>
                 <th class="px-4 py-3">Project site</th>
                 <th class="px-4 py-3">Deadline</th>
-                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3">Result</th>
                 <th class="px-4 py-3">Notification</th>
                 <th class="px-4 py-3">Last attempt</th>
                 <th class="px-4 py-3">GPS</th>
@@ -27,8 +27,10 @@
                     </td>
                     <td data-label="Project site" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ $cp->site?->name ?? $c?->site?->name }}</td>
                     <td data-label="Deadline" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">{{ $c?->expires_at?->format('g:i A') ?? '—' }}</td>
-                    <td data-label="Status" class="px-4 py-3">
-                        <x-checkpoint-status-badge :checkpoint="$cp" />
+                    <td data-label="Result" class="px-4 py-3">
+                        @php $r = $cp->result(); @endphp
+                        <span class="badge {{ $r === 'completed' ? 'badge-success' : ($r === 'waiting' ? 'badge-info' : 'badge-danger') }}">{{ $cp->resultLabel() }}</span>
+                        <div class="mt-1 text-[11px] text-gray-500 dark:text-slate-400">{{ $cp->status_label }}</div>
                         @if($cp->escalated_at)<span class="mt-0.5 block text-[11px] font-medium text-rose-700 dark:text-rose-300">Escalated</span>@endif
                     </td>
                     <td data-label="Notification" class="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-slate-300">{{ $cp->notification_status }}</td>
@@ -63,18 +65,18 @@
                         <div class="flex items-center justify-end gap-1">
                             @if($cp->employee?->email)
                                 <a href="mailto:{{ $cp->employee->email }}?subject={{ rawurlencode('Checkpoint ' . $cp->reference() . ' — ' . ($c?->name ?? '')) }}"
-                                   class="rounded-xs border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60" title="Contact employee">Contact</a>
+                                   class="btn-app btn-xs btn-secondary" title="Contact employee">Contact</a>
                             @endif
                             @can('review checkpoint exceptions')
                                 @if(! $cp->reviewed_at && $cp->status !== \App\Models\Checkpoint::PENDING_REVIEW && ! $c?->isLive())
                                     <form method="POST" action="{{ route('checkpoints.results.follow-up', $cp) }}">
                                         @csrf <input type="hidden" name="action" value="mark_review">
-                                        <button class="rounded-xs border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30">Mark for review</button>
+                                        <button class="btn-app btn-xs btn-outline-warn">Mark for review</button>
                                     </form>
                                 @endif
                             @endcan
                             @can('view checkpoint results')
-                                <a href="{{ route('checkpoints.results.show', $cp) }}" class="rounded-xs border border-brand-300 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50 dark:border-brand-500/40 dark:text-brand-300 dark:hover:bg-brand-500/10">View details</a>
+                                <a href="{{ route('checkpoints.results.show', $cp) }}" class="btn-app btn-xs btn-outline-brand">View details</a>
                             @endcan
                         </div>
                     </td>
