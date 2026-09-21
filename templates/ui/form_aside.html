@@ -1,0 +1,13 @@
+<aside class="form-aside space-y-4">
+    {% if facts %}
+        <div class="grid grid-cols-2 gap-3">
+            {% for f in facts %}{% stat f.label f.value f.hint f.tone|default:"neutral" %}{% endfor %}
+        </div>
+    {% endif %}
+    <div class="card p-5">
+        <p class="eyebrow">{{ title }}</p>
+        <ul class="mt-3 space-y-2.5 text-sm text-gray-600 dark:text-slate-300">
+            {% for b in bullets %}<li>{{ b|safe }}</li>{% endfor %}
+        </ul>
+    </div>
+</aside>

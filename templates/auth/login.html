@@ -1,0 +1,24 @@
+{% extends "layouts/guest.html" %}
+{% block content %}
+    {% for m in messages %}<div class="mb-4 rounded-xs border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">{{ m }}</div>{% endfor %}
+    {% if form.non_field_errors %}<div class="mb-4 rounded-xs border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ form.non_field_errors.0 }}</div>{% endif %}
+    <form method="POST" action="{% url 'login' %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        <div>
+            <label for="username" class="block font-medium text-sm text-gray-700 dark:text-slate-200">Username</label>
+            <input id="username" class="block mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600" type="text" name="username" value="{{ form.username.value|default:'' }}" required autofocus autocomplete="username" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="mt-4">
+            <label for="password" class="block font-medium text-sm text-gray-700 dark:text-slate-200">Password</label>
+            <input id="password" class="block mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600" type="password" name="password" required autocomplete="current-password">
+        </div>
+        <div class="block mt-4">
+            <label for="remember_me" class="inline-flex items-center"><input id="remember_me" type="checkbox" class="rounded-sm border-gray-300 dark:border-slate-600 text-brand-600 shadow-xs focus:ring-brand-500" name="remember"><span class="ms-2 text-sm text-gray-600 dark:text-slate-300">Remember me</span></label>
+        </div>
+        <div class="flex items-center justify-end mt-4">
+            <a class="underline text-sm text-gray-600 dark:text-slate-300 hover:text-gray-900 rounded-xs" href="{% url 'password.request' %}">Forgot your password?</a>
+            <button type="submit" class="btn-app btn-md btn-brand ms-3">Log in</button>
+        </div>
+    </form>
+{% endblock %}

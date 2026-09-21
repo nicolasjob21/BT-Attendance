@@ -1,0 +1,33 @@
+{% extends "layouts/app.html" %}
+{% block header %}Checkpoint {{ checkpoint.reference }}{% endblock %}
+{% block content %}
+{% with cp=checkpoint c=campaign %}
+<div class="mx-auto max-w-2xl space-y-4">
+    <div class="card p-5">
+        <div class="flex flex-wrap items-center gap-2"><h2 class="text-lg font-bold text-gray-900 dark:text-slate-100">{{ cp.project_site.name }}</h2>{% checkpoint_badge cp %}</div>
+        <p class="text-sm text-gray-600 dark:text-slate-300">{{ c.name }}{% if c.starts_at %} · {{ c.starts_at|date:"D, M j" }} · window {{ c.starts_at|t12 }}–{{ c.expires_at|t12 }}{% endif %}</p>
+        <dl class="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <div><dt class="text-xs text-gray-500 dark:text-slate-400">Instruction</dt><dd class="text-gray-900 dark:text-slate-100">{{ c.instruction }}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-slate-400">Submitted</dt><dd class="text-gray-900 dark:text-slate-100">{% if cp.submitted_at %}{{ cp.submitted_at|date:"g:i:s A" }}{% elif cp.last_attempt_at %}Last attempt {{ cp.last_attempt_at|t12 }}{% else %}No submission{% endif %}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-slate-400">Result</dt><dd class="text-gray-900 dark:text-slate-100">{{ cp.verification_label|default:cp.failure_label|default:"—" }}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-slate-400">Distance from site</dt><dd class="text-gray-900 dark:text-slate-100">{% if cp.distance_from_site_meters is not None %}{{ cp.distance_from_site_meters|n0 }} m{% else %}—{% endif %}</dd></div>
+        </dl>
+        {% if cp.validation_message %}<p class="mt-3 rounded-xs bg-gray-50 px-3 py-2 text-xs text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">{{ cp.validation_message }}</p>{% endif %}
+        {% if has_photo %}<button type="button" @click="$dispatch('open-lightbox', '{% url 'checkpoints.photo' cp.id %}')" class="mt-4 block overflow-hidden rounded-xs"><img src="{% url 'checkpoints.photo' cp.id %}" alt="Your checkpoint photo" class="h-40 w-auto object-cover"></button>{% endif %}
+    </div>
+    {% if cp.reviewed_at %}
+    <div class="card p-5"><h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">HR decision</h3><p class="mt-1 text-sm text-gray-900 dark:text-slate-100">{% if cp.status == 'approved_exception' %}Exception approved{% else %}Exception rejected{% endif %} — {{ cp.hr_reason_label }}</p>{% if cp.hr_note %}<p class="text-sm text-gray-700 dark:text-slate-200">“{{ cp.hr_note }}”</p>{% endif %}<p class="mt-1 text-xs text-gray-500 dark:text-slate-400">— {{ cp.reviewed_by.name }}, {{ cp.reviewed_at|dt12 }}</p></div>
+    {% endif %}
+    {% if can_explain %}
+    <form method="POST" action="{% url 'my-checkpoints.explain' cp.id %}" class="card space-y-3 p-5">
+        {% csrf_token %}
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Explain to HR</h3>
+        <p class="text-xs text-gray-500 dark:text-slate-400">You didn't complete this checkpoint in time. If you had no internet, a device or GPS problem, or were away on an approved task, tell HR here — a late submission cannot be accepted as a live checkpoint, but HR can approve the exception.</p>
+        <select name="issue" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">What happened? (optional)</option>{% for v, l in issues.items %}<option value="{{ v }}" {% if cp.issue_reported == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        <textarea name="employee_explanation" rows="3" required maxlength="1000" placeholder="e.g. No mobile signal in the basement until 3 PM." class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">{{ cp.employee_explanation|default:'' }}</textarea>
+        <div class="flex justify-end"><button class="btn-app btn-md btn-brand">{% if cp.employee_explanation %}Update explanation{% else %}Send explanation{% endif %}</button></div>
+    </form>
+    {% elif cp.employee_explanation %}<div class="card p-5 text-sm"><h3 class="font-semibold text-gray-900 dark:text-slate-100">Your explanation</h3><p class="mt-1 text-gray-700 dark:text-slate-200">“{{ cp.employee_explanation }}”</p></div>{% endif %}
+</div>
+{% endwith %}
+{% endblock %}

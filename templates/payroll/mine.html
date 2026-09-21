@@ -1,0 +1,37 @@
+{% extends "layouts/app.html" %}
+{% block header %}My Payslips{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <p class="text-sm text-gray-600 dark:text-slate-300">Your payslips appear here as soon as the salary for that cutoff has been released. Open one to view or download it.</p>
+    <div class="stat-strip">
+        {% if summary.last %}{% stat "Last net pay" summary.last.net_pay|money summary.last.payroll_period.label "brand" %}{% else %}{% stat "Last net pay" "—" "No payslip released yet" "muted" %}{% endif %}
+        {% stat "Paid this year" summary.ytd_net|money summary.ytd_count|stringformat:"s"|add:" payslip(s) in "|add:year|stringformat:"s" %}
+        {% if summary.method == 'Card' %}{% stat "Paid by" summary.method "credited to your card" %}{% else %}{% stat "Paid by" summary.method "envelope with printed payslip" %}{% endif %}
+        {% if summary.next.day == 15 %}{% stat "Next pay day" summary.next|dmd summary.next|date:"l"|add:" · 1st–15th cutoff" "success" %}{% else %}{% stat "Next pay day" summary.next|dmd summary.next|date:"l"|add:" · 16th–end cutoff" "success" %}{% endif %}
+    </div>
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr><th class="px-4 py-3">Period</th><th class="px-4 py-3">Released</th><th class="px-4 py-3">Paid by</th><th class="px-4 py-3 text-right">Gross</th><th class="px-4 py-3 text-right">Deductions</th><th class="px-4 py-3 text-right">Net pay</th><th class="px-4 py-3 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700 tabular-nums">
+                    {% for item in items %}
+                    <tr>
+                        <td class="cell-head px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{{ item.payroll_period.label }}</td>
+                        <td data-label="Released" class="px-4 py-3 text-gray-600 dark:text-slate-300 whitespace-nowrap">{{ item.payroll_period.released_at|dmdy }} <span class="text-xs text-gray-400 dark:text-slate-500">· {{ item.payroll_period.release_timing }}</span></td>
+                        <td data-label="Paid by" class="px-4 py-3"><span class="badge {% if item.employee.pays_by_card %}badge-info{% else %}badge-neutral{% endif %}">{% if item.employee.pays_by_card %}Card{% else %}Cash{% endif %}</span></td>
+                        <td data-label="Gross" class="px-4 py-3 text-right text-gray-700 dark:text-slate-200">{{ item.gross_pay|n2 }}</td>
+                        <td data-label="Deductions" class="px-4 py-3 text-right text-accent-600 dark:text-accent-400">{{ item.total_deductions|n2 }}</td>
+                        <td data-label="Net pay" class="px-4 py-3 text-right font-semibold {% if item.net_pay < 0 %}text-rose-600 dark:text-rose-400{% else %}text-gray-900 dark:text-slate-100{% endif %}">{{ item.net_pay|money }}</td>
+                        <td data-label="Actions" class="px-4 py-3 whitespace-nowrap"><div class="row-actions"><a href="{% url 'payroll.show' item.id %}" class="is-primary">View / Download</a></div></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="p-0">{% empty_state "No released payslips yet" "Payslips show up here the moment the Super Admin releases a cutoff's payroll. Nothing is shown before the salary is actually out." None None "cash" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

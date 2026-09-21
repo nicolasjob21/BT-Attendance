@@ -1,0 +1,63 @@
+{% extends "layouts/app.html" %}
+{% block header %}Overtime Requests{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm text-gray-500 dark:text-slate-400">{% if can_approve %}Overtime requests awaiting your decision, and past decisions.{% else %}Your overtime requests. Actual hours are filled in from your clock-out once the day is over.{% endif %}</p>
+        {% if can.request_overtime and employee %}<a href="{% url 'overtime.create' %}" class="btn-app btn-md btn-brand">Request Overtime</a>{% endif %}
+    </div>
+    <div class="stat-strip">
+        {% if stats.pending %}{% stat can_approve|yesno:"Awaiting approval,Pending" stats.pending "needs a decision" "warn" %}{% else %}{% stat can_approve|yesno:"Awaiting approval,Pending" stats.pending "nothing waiting" "success" %}{% endif %}
+        {% now "F" as m %}{% stat "Approved this month" stats.approved_month m "brand" %}
+        {% stat "OT hours this month" stats.hours_month "actual hours from clock-outs" %}
+        {% stat "Denied this year" stats.denied_year None stats.denied_year|yesno:"danger,muted" %}
+    </div>
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr>{% if can_approve %}<th class="px-4 py-3">Employee</th>{% endif %}<th class="px-4 py-3">Date &amp; plan</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3 text-center">Hours</th><th class="px-4 py-3">Status</th>{% if can_approve %}<th class="px-4 py-3 text-right">Decision</th>{% endif %}</tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for req in requests %}
+                    <tr class="align-top">
+                        {% if can_approve %}<td class="cell-head px-4 py-3"><div class="font-medium text-gray-900 dark:text-slate-100">{{ req.employee.full_name }}</div><div class="text-xs text-gray-500 dark:text-slate-400">{{ req.employee.employee_no }}</div></td>{% endif %}
+                        <td data-label="Date &amp; plan" class="px-4 py-3 whitespace-nowrap">
+                            <div class="font-medium text-gray-900 dark:text-slate-100">{{ req.ot_date|dfull }}</div>
+                            <div class="text-xs text-gray-500 dark:text-slate-400">{% with w=req.planned_window %}{% if w %}{{ w }} · {% endif %}{% endwith %}{{ req.type_label }}</div>
+                        </td>
+                        <td data-label="Reason" class="px-4 py-3">
+                            <p class="max-w-md whitespace-pre-line text-gray-700 dark:text-slate-200">{{ req.reason|default:"—" }}</p>
+                            {% if req.admin_remarks %}<p class="mt-1 max-w-md text-xs text-gray-500 dark:text-slate-400"><span class="font-medium">{{ req.approved_by.full_name|default:"Approver" }}:</span> “{{ req.admin_remarks }}”</p>{% endif %}
+                        </td>
+                        <td data-label="Hours" class="px-4 py-3 text-center tabular-nums">
+                            {% if req.requested_hours is not None %}<div class="text-gray-900 dark:text-slate-100"><span class="text-xs text-gray-400 dark:text-slate-500">planned</span> {{ req.requested_hours|floatformat:"-2" }}h</div>{% endif %}
+                            {% if req.hours is not None %}
+                                <div class="text-gray-900 dark:text-slate-100"><span class="text-xs text-gray-400 dark:text-slate-500">actual</span> {{ req.hours|floatformat:"-2" }}h
+                                {% with p=req.payable_hours %}{% if p is not None and p < req.hours %}<span class="text-xs text-accent-600 dark:text-accent-300" title="Paid hours are capped at the approved plan">(paid {{ p|floatformat:"-2" }}h)</span>{% endif %}{% endwith %}</div>
+                            {% elif req.status == 'approved' %}<div class="text-xs text-gray-400 dark:text-slate-500">{% if req.ot_date > today %}upcoming{% else %}awaiting clock-out{% endif %}</div>{% endif %}
+                            {% if req.status == 'approved' %}<div class="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500" title="Overtime is paid one cutoff later">paid in {{ req.payout_cutoff_label }}</div>{% endif %}
+                        </td>
+                        <td data-label="Status" class="px-4 py-3">{% status_badge req.status %}{% if req.status != 'pending' %}<div class="mt-1 text-[11px] text-gray-400 dark:text-slate-500">by {{ req.approved_by.full_name|default:"—" }}{% if req.approved_at %} · {{ req.approved_at|dmd }}{% endif %}</div>{% endif %}</td>
+                        {% if can_approve %}
+                        <td data-label="Decision" class="px-4 py-3">
+                            {% if req.status == 'pending' %}
+                                <form method="POST" action="{% url 'overtime.approve' req.id %}" class="ml-auto flex w-full max-w-xs flex-col gap-1.5 sm:items-end">
+                                    {% csrf_token %}
+                                    <input type="text" name="remarks" maxlength="500" placeholder="Remarks (optional)" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
+                                    <div class="flex gap-1.5"><button formaction="{% url 'overtime.approve' req.id %}" class="btn-app btn-xs btn-success">Approve</button><button formaction="{% url 'overtime.deny' req.id %}" class="btn-app btn-xs btn-outline-danger">Deny</button></div>
+                                </form>
+                            {% else %}<span class="text-xs text-gray-400 dark:text-slate-500">Decided</span>{% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="{% if can_approve %}6{% else %}4{% endif %}" class="p-0">{% url 'overtime.create' as u %}{% empty_state "No overtime requests yet" can_approve|yesno:"Requests employees file will show up here for approval.,Overtime is paid only when approved in advance — file a request before staying late." u "Request overtime" "clock" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% query_without_page as query %}{% include "ui/pagination.html" with page=requests query=query %}
+</div>
+{% endblock %}

@@ -1,0 +1,19 @@
+{# Contents of #monitor-results: what the date stepper and search swap in. #}
+{% if hx %}{% include "attendance/_monitor_stepper.html" with oob=True %}{% endif %}
+{% include "attendance/_monitor_summary.html" %}
+
+<div class="overflow-hidden card">
+    <div class="overflow-x-auto">
+        <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+            <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                <tr><th class="px-4 py-3">Employee</th><th class="px-4 py-3">Time In</th><th class="px-4 py-3">Time Out</th><th class="px-4 py-3">Hours</th><th class="px-4 py-3">Status</th></tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                {% for row in rows %}{% include "attendance/_monitor_row.html" %}
+                {% empty %}
+                <tr><td colspan="5" class="p-0">{% empty_state "No employees match your search" None None "Clear search" "users" "monitor-clear" %}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

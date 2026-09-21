@@ -1,0 +1,53 @@
+{% extends "layouts/app.html" %}
+{% block header %}Leave Requests{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-gray-500 dark:text-slate-400">{% if can_approve %}Every employee's leave requests — approve or deny the pending ones.{% else %}Your leave requests and their status.{% endif %}</p>
+        {% if can.request_leave and employee %}<div class="flex flex-wrap items-center gap-2"><a href="{% url 'leave.early.create' %}" class="btn-app btn-md btn-secondary">Go home early / Sick</a><a href="{% url 'leave.create' %}" class="btn-app btn-md btn-brand">File Leave</a></div>{% endif %}
+    </div>
+    <div class="stat-strip">
+        {% if stats.pending %}{% stat can_approve|yesno:"Awaiting approval,Pending" stats.pending "needs a decision" "warn" %}{% else %}{% stat can_approve|yesno:"Awaiting approval,Pending" stats.pending "nothing waiting" "success" %}{% endif %}
+        {% now "F" as m %}{% stat "Approved this month" stats.approved_month m "brand" %}
+        {% now "Y" as y %}{% stat "Days taken this year" stats.days_year "approved leave in "|add:y %}
+        {% stat "Denied this year" stats.denied_year None stats.denied_year|yesno:"danger,muted" %}
+    </div>
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr>{% if can_approve %}<th class="px-4 py-3">Employee</th>{% endif %}<th class="px-4 py-3">Type</th><th class="px-4 py-3">Dates</th><th class="px-4 py-3 text-center">Days</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3">Status</th>{% if can_approve %}<th class="px-4 py-3 text-right">Action</th>{% endif %}</tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for req in requests %}
+                    <tr>
+                        {% if can_approve %}<td class="cell-head px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{{ req.employee.full_name }}</td>{% endif %}
+                        <td data-label="Type" class="px-4 py-3 text-gray-700 dark:text-slate-200">{% if req.leave_type %}{{ req.leave_type.name }}{% elif req.is_half_day %}Half day{% else %}—{% endif %}{% if req.is_early_leave %} <span class="badge badge-warn ml-1">Early leave</span>{% endif %}</td>
+                        <td data-label="Dates" class="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-slate-200">
+                            {% if req.is_half_day %}{{ req.date_from|dmdy }} <span class="badge badge-info ml-1">{% if req.day_portion == 'half_am' %}AM{% else %}PM{% endif %}</span>{% if req.is_early_leave and req.requested_time_out %}<span class="block text-[11px] text-gray-400 dark:text-slate-500">out by {{ req.requested_time_out|t12 }}</span>{% endif %}
+                            {% else %}{{ req.date_from|dmd }} – {{ req.date_to|dmdy }}{% endif %}
+                        </td>
+                        <td data-label="Days" class="px-4 py-3 text-center tabular-nums">{{ req.days|floatformat:"-1" }}</td>
+                        <td data-label="Reason" class="px-4 py-3 max-w-xs truncate text-gray-500 dark:text-slate-400">{{ req.reason|default:"—" }}</td>
+                        <td data-label="Status" class="px-4 py-3">{% status_badge req.status %}</td>
+                        {% if can_approve %}
+                        <td data-label="Action" class="px-4 py-3 text-right">
+                            {% if req.status == 'pending' %}
+                                <div class="flex justify-end gap-2">
+                                    <form method="POST" action="{% url 'leave.approve' req.id %}">{% csrf_token %}<button class="btn-app btn-xs btn-success">Approve</button></form>
+                                    <form method="POST" action="{% url 'leave.deny' req.id %}">{% csrf_token %}<button class="btn-app btn-xs btn-danger">Deny</button></form>
+                                </div>
+                            {% else %}<span class="text-xs text-gray-400 dark:text-slate-500">by {{ req.approved_by.full_name|default:"—" }}</span>{% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="{% if can_approve %}7{% else %}5{% endif %}" class="p-0">{% url 'leave.create' as u %}{% empty_state "No leave requests" can_approve|yesno:"Requests employees file will show up here for approval.,File vacation\, sick or early-leave requests and track them here." u "File leave" "calendar" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% query_without_page as query %}{% include "ui/pagination.html" with page=requests query=query %}
+</div>
+{% endblock %}

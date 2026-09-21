@@ -1,0 +1,66 @@
+{% extends "layouts/app.html" %}
+{% block header %}Profile{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <div class="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div class="card p-5 sm:p-6">
+            <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">Profile Information</h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">Update your account's profile information, username and email address.</p>
+            <form method="post" action="{% url 'profile.update' %}" enctype="multipart/form-data" class="mt-6 space-y-6" x-data="{ preview: '{{ user.profile_photo_url|default:'' }}', remove: false }">
+                {% csrf_token %}
+                <div>
+                    <label class="block font-medium text-sm text-gray-700 dark:text-slate-200">Profile Photo</label>
+                    <div class="mt-2 flex items-center gap-4">
+                        <template x-if="preview && !remove"><img :src="preview" alt="Profile photo" class="h-16 w-16 rounded-full object-cover ring-1 ring-gray-200 dark:ring-slate-700"></template>
+                        <span x-show="!preview || remove" class="grid h-16 w-16 place-items-center rounded-full bg-brand-100 text-xl font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">{{ user.name|slice:":1"|upper }}</span>
+                        <div class="space-y-1.5">
+                            <label class="btn-app btn-sm btn-secondary cursor-pointer">Choose photo<input type="file" name="photo" accept="image/png,image/jpeg,image/webp" class="hidden" @change="remove = false; const f = $event.target.files[0]; if (f) preview = URL.createObjectURL(f);"></label>
+                            {% if user.profile_photo_url %}<label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400"><input type="checkbox" name="remove_photo" value="1" x-model="remove" class="rounded-xs border-gray-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"> Remove current photo</label>{% endif %}
+                            <p class="text-xs text-gray-400 dark:text-slate-500">JPG, PNG or WebP · max 2&nbsp;MB.</p>
+                        </div>
+                    </div>
+                    {% if profile_errors.photo %}<p class="mt-2 text-sm text-rose-600">{{ profile_errors.photo }}</p>{% endif %}
+                </div>
+                {% include "ui/field.html" with label="Name" name="name" value=user.name required=True error=profile_errors.name %}
+                <div class="grid gap-6 sm:grid-cols-2">
+                    {% include "ui/field.html" with label="Username" name="username" value=user.username required=True hint="Used to sign in. Company prefix + first name, e.g. brite-juan." error=profile_errors.username attrs='autocapitalize="none" spellcheck="false"' %}
+                    {% include "ui/field.html" with label="Email" name="email" type="email" value=user.email required=True error=profile_errors.email %}
+                </div>
+                <div class="flex items-center gap-4"><button class="btn-app btn-md btn-brand">Save</button></div>
+            </form>
+        </div>
+        <div class="space-y-4">
+            <div class="card p-5 sm:p-6">
+                <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">Update Password</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">Ensure your account is using a long, random password to stay secure.</p>
+                <form method="post" action="{% url 'password.update' %}" class="mt-6 space-y-6">
+                    {% csrf_token %}
+                    {% if password_errors %}<ul class="rounded-xs border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{% for e in password_errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+                    {% include "ui/field.html" with label="Current Password" name="current_password" type="password" attrs='autocomplete="current-password"' %}
+                    {% include "ui/field.html" with label="New Password" name="password" type="password" attrs='autocomplete="new-password"' %}
+                    {% include "ui/field.html" with label="Confirm Password" name="password_confirmation" type="password" attrs='autocomplete="new-password"' %}
+                    <div class="flex items-center gap-4"><button class="btn-app btn-md btn-brand">Save</button></div>
+                </form>
+            </div>
+            <div class="card border-accent-600/40 p-5 sm:p-6" x-data="{ open: {{ delete_errors|yesno:'true,false' }} }">
+                <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">Delete Account</h2>
+                <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">Once your account is deleted, all of its resources and data will be permanently deleted. Before deleting your account, please download any data or information that you wish to retain.</p>
+                <button type="button" @click="open = true" class="btn-app btn-md btn-outline-danger mt-6">Delete Account</button>
+                <template x-teleport="body">
+                    <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="open = false">
+                        <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm" @click="open = false"></div>
+                        <form method="post" action="{% url 'profile.destroy' %}" x-show="open" x-transition class="relative w-full max-w-md rounded-xs border border-gray-200 bg-white p-6 shadow-2xl dark:border-hair dark:bg-surface">
+                            {% csrf_token %}
+                            <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">Are you sure you want to delete your account?</h2>
+                            <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">Please enter your password to confirm you would like to permanently delete your account.</p>
+                            <input name="password" type="password" placeholder="Password" class="mt-6 block w-3/4 rounded-xs border-gray-300 text-sm dark:border-slate-600">
+                            {% for e in delete_errors %}<p class="mt-2 text-sm text-rose-600">{{ e }}</p>{% endfor %}
+                            <div class="mt-6 flex justify-end gap-3"><button type="button" @click="open = false" class="btn-app btn-md btn-secondary">Cancel</button><button class="btn-app btn-md btn-danger">Delete Account</button></div>
+                        </form>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

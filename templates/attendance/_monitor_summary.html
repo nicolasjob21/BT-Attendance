@@ -1,0 +1,15 @@
+{# Stat strip + caption for the selected date. Sent out of band after an HR decision so the counts follow the row. #}
+<div id="monitor-stats"{% if oob %} hx-swap-oob="true"{% endif %} class="stat-strip">
+    {% with total=rows|length|stringformat:"s" %}
+    {% if is_rest_day %}{% stat "Worked today" present "of "|add:total|add:" employee(s)" "success" %}{% stat "Day off" absent "rest day — no punch expected" "muted" %}
+    {% else %}{% stat "Present" present "of "|add:total|add:" employee(s)" "success" %}{% if absent %}{% stat "Absent" absent "no time in yet" "danger" %}{% else %}{% stat "Absent" absent "no time in yet" "success" %}{% endif %}{% endif %}
+    {% endwith %}
+    {% if still_in %}{% stat "Still clocked in" still_in "no time out recorded" "brand" %}{% else %}{% stat "Still clocked in" still_in "everyone is out" "muted" %}{% endif %}
+    {% if needs_check %}{% stat "Needs your check" needs_check "long day or location exception" "warn" %}{% else %}{% stat "Needs your check" needs_check "nothing flagged" "muted" %}{% endif %}
+</div>
+
+<p id="monitor-caption"{% if oob %} hx-swap-oob="true"{% endif %} class="text-xs text-gray-500 dark:text-slate-400">
+    Showing {% if is_today %}today{% else %}{{ date|date:"l, F j, Y" }}{% endif %}
+    {% if ot_minutes %} · {{ ot_minutes|hlabel }} overtime{% endif %}
+    {% if is_rest_day %}<span class="badge badge-danger ml-1">Rest day — anyone on site is on rest-day OT (130%)</span>{% endif %}
+</p>

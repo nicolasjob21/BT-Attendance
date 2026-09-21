@@ -1,0 +1,48 @@
+{% extends "layouts/app.html" %}
+{% block header %}File Leave{% endblock %}
+{% block content %}
+<div class="page-form form-split" x-data="{ portion: '{{ old.day_portion|default:'full' }}', get half() { return this.portion !== 'full' } }">
+    <form method="POST" action="{% url 'leave.store' %}" class="space-y-5 card p-6">
+        {% csrf_token %}
+        <div class="border-b border-gray-100 pb-4 dark:border-slate-700">
+            <h2 class="font-display text-base font-bold text-gray-900 dark:text-slate-100">Leave request</h2>
+            <p class="mt-0.5 text-sm text-gray-500 dark:text-slate-400">Goes to HR for approval. You will be notified when it is decided.</p>
+        </div>
+        <div>
+            <label for="leave_type_id" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Leave type <span class="font-normal text-gray-400 dark:text-slate-500" x-show="half" x-cloak>(optional for a half day)</span></label>
+            <select id="leave_type_id" name="leave_type_id" :required="!half" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                <option value="">Select…</option>
+                {% for type in leave_types %}<option value="{{ type.id }}" {% if old.leave_type_id == type.id|stringformat:"s" %}selected{% endif %}>{{ type.name }}{% if type.code %} ({{ type.code }}){% endif %}</option>{% endfor %}
+            </select>
+            <p class="mt-1 text-xs text-gray-500 dark:text-slate-400" x-show="half" x-cloak>No leave type needed — put the details (e.g. the client) in the reason below.</p>
+            {% if errors.leave_type_id %}<p class="mt-1 text-sm text-rose-600">{{ errors.leave_type_id }}</p>{% endif %}
+        </div>
+        <div>
+            <label for="day_portion" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Duration</label>
+            <select id="day_portion" name="day_portion" x-model="portion" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                <option value="full">Full day</option><option value="half_am">Half day — Morning</option><option value="half_pm">Half day — Afternoon</option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500 dark:text-slate-400" x-show="half" x-cloak>A half day counts as 0.5 day on the selected date.</p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+                <label for="date_from" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200" x-text="half ? 'Date' : 'From'">From</label>
+                <input type="date" id="date_from" name="date_from" value="{{ old.date_from|default:'' }}" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+                {% if errors.date_from %}<p class="mt-1 text-sm text-rose-600">{{ errors.date_from }}</p>{% endif %}
+            </div>
+            <div x-show="!half" x-cloak>
+                <label for="date_to" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">To</label>
+                <input type="date" id="date_to" name="date_to" value="{{ old.date_to|default:'' }}" :required="!half" :disabled="half" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+                {% if errors.date_to %}<p class="mt-1 text-sm text-rose-600">{{ errors.date_to }}</p>{% endif %}
+            </div>
+        </div>
+        <div>
+            <label for="reason" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Reason <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
+            <textarea id="reason" name="reason" rows="3" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">{{ old.reason|default:'' }}</textarea>
+        </div>
+        <div class="flex justify-end gap-2"><a href="{% url 'leave.index' %}" class="btn-app btn-md btn-secondary">Cancel</a><button type="submit" class="btn-app btn-md btn-brand">Submit request</button></div>
+    </form>
+    {% url 'leave.early.create' as early_url %}
+    {% form_aside facts "How leave works" leave_bullets %}
+</div>
+{% endblock %}

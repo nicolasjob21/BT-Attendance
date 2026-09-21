@@ -1,0 +1,36 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("checkpoints", views.index, name="checkpoints.index"),
+    path("checkpoints/store", views.store, name="checkpoints.store"),
+    path("checkpoints/create", views.create, name="checkpoints.create"),
+    path("checkpoints/daily", views.daily, name="checkpoints.daily"),
+    path("checkpoints/history", views.history, name="checkpoints.history"),
+    path("checkpoints/settings", views.settings_edit, name="checkpoints.settings"),
+    path("checkpoints/settings/update", views.settings_update, name="checkpoints.settings.update"),
+    path("checkpoints/results", views.results_index, name="checkpoints.results.index"),
+    path("checkpoints/results/<int:pk>", views.results_show, name="checkpoints.results.show"),
+    path("checkpoints/results/<int:pk>/follow-up", views.follow_up, name="checkpoints.results.follow-up"),
+    path("checkpoints/campaigns/<int:pk>", views.show, name="checkpoints.show"),
+    path("checkpoints/campaigns/<int:pk>/update", views.update, name="checkpoints.update"),
+    path("checkpoints/campaigns/<int:pk>/edit", views.edit, name="checkpoints.edit"),
+    path("checkpoints/campaigns/<int:pk>/status", views.status, name="checkpoints.status"),
+    path("checkpoints/campaigns/<int:pk>/activate", views.activate, name="checkpoints.activate"),
+    path("checkpoints/campaigns/<int:pk>/schedule", views.schedule, name="checkpoints.schedule"),
+    path("checkpoints/campaigns/<int:pk>/schedule-random", views.schedule_random, name="checkpoints.schedule-random"),
+    path("checkpoints/campaigns/<int:pk>/pause", views.pause, name="checkpoints.pause"),
+    path("checkpoints/campaigns/<int:pk>/resume", views.resume, name="checkpoints.resume"),
+    path("checkpoints/campaigns/<int:pk>/end", views.end, name="checkpoints.end"),
+    path("checkpoints/campaigns/<int:pk>/cancel", views.cancel, name="checkpoints.cancel"),
+    path("checkpoints/campaigns/<int:pk>/complete", views.complete, name="checkpoints.complete"),
+    path("checkpoints/campaigns/<int:pk>/export", views.export, name="checkpoints.export"),
+    path("checkpoint-photos/<int:pk>", views.photo, name="checkpoints.photo"),
+    path("my-checkpoints", views.my_index, name="my-checkpoints.index"),
+    path("my-checkpoints/active", views.my_active, name="my-checkpoints.active"),
+    path("my-checkpoints/<int:pk>", views.my_show, name="my-checkpoints.show"),
+    path("my-checkpoints/<int:pk>/submit", views.my_submit, name="my-checkpoints.submit"),
+    path("my-checkpoints/<int:pk>/issue", views.my_issue, name="my-checkpoints.issue"),
+    path("my-checkpoints/<int:pk>/explain", views.my_explain, name="my-checkpoints.explain"),
+]

@@ -1,0 +1,8 @@
+{# Reusable text/number/date/email input with label, hint and error. #}
+<div class="{{ wrap }}">
+    <label for="{{ id|default:name }}" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">{{ label }}{% if optional %} <span class="text-gray-400 dark:text-slate-500">({{ optional }})</span>{% endif %}</label>
+    <input type="{{ type|default:'text' }}" id="{{ id|default:name }}" name="{{ name }}" value="{{ value|default_if_none:'' }}" {% if required %}required{% endif %} {% if placeholder %}placeholder="{{ placeholder }}"{% endif %} {% if step %}step="{{ step }}"{% endif %} {% if min %}min="{{ min }}"{% endif %} {% if attrs %}{{ attrs|safe }}{% endif %}
+           class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 {% if type == 'date' or type == 'time' or type == 'month' %}dark:[color-scheme:dark]{% endif %} {{ input_class }}">
+    {% if hint %}<p class="mt-1 text-xs text-gray-500 dark:text-slate-400">{{ hint|safe }}</p>{% endif %}
+    {% if error %}<p class="mt-1 text-sm text-rose-600">{{ error }}</p>{% endif %}
+</div>

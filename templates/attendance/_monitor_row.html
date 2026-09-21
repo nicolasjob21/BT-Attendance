@@ -1,0 +1,100 @@
+{# One employee for the selected date. Swapped in place (outerHTML) after an HR decision; the forms carry date + search so the server can rebuild it. #}
+{% with tin=row.time_in tout=row.time_out %}
+<tr id="monitor-row-{{ row.employee.id }}">
+    <td class="cell-head px-4 py-3">
+        <a href="{% url 'attendance.timesheet' row.employee.id %}?month={{ date|date:'Y-m' }}" class="font-medium text-gray-900 hover:text-brand-700 hover:underline dark:text-slate-100 dark:hover:text-brand-300" title="Open this employee's monthly timesheet">{{ row.employee.full_name }}</a>
+        <div class="text-xs text-gray-500 dark:text-slate-400">{{ row.employee.employee_no }}</div>
+    </td>
+    {% include "attendance/_punch_cell.html" with label="Time In" log=tin day=date %}
+    {% include "attendance/_punch_cell.html" with label="Time Out" log=tout day=date %}
+    <td data-label="Hours" class="px-4 py-3 tabular-nums text-gray-700 dark:text-slate-200 {% if not row.hours or not tout %}stack-skip{% endif %}">
+        {% if row.hours and tout %}
+            <div class="font-medium">{{ row.hours }}</div>
+            {% if row.ot_minutes > 0 %}
+                <div class="mt-0.5 text-xs text-gray-500 dark:text-slate-400">
+                    {% if row.rest_day %}<span class="font-medium text-accent-600 dark:text-accent-300">OT {{ row.ot_minutes|hlabel }}</span> (rest day)
+                    {% else %}Reg {{ row.regular_minutes|hlabel }} · <span class="font-medium text-accent-600 dark:text-accent-300">OT {{ row.ot_minutes|hlabel }}</span>{% endif %}
+                </div>
+            {% endif %}
+        {% else %}—{% endif %}
+    </td>
+    <td data-label="Status" class="px-4 py-3 align-top">
+        <div class="flex flex-col items-end gap-1.5 sm:items-start">
+            <div class="flex flex-wrap items-center justify-end gap-1 sm:justify-start">
+                {% if tin and tout %}<span class="badge badge-success">Present</span>
+                {% elif tin %}<span class="badge badge-warn">No time out</span>
+                {% elif is_rest_day %}<span class="badge badge-muted">Day off</span>
+                {% else %}<span class="badge badge-muted">Absent</span>{% endif %}
+                {% if row.ot_minutes > 0 and tin and tout %}<span class="badge badge-danger">{% if row.rest_day %}Rest-day OT{% else %}Overtime{% endif %}</span>{% endif %}
+                {% if row.rest_day and tin %}
+                    {% if row.rest_day_request.status == 'approved' %}<span class="badge badge-success" title="Approved rest-day work request">OT approved</span>
+                    {% elif row.rest_day_request %}<span class="badge badge-warn">OT request pending</span>
+                    {% else %}<a href="{% url 'overtime.index' %}" title="Weekend work is paid only through an approved rest-day OT request. The employee can still file it up to 3 days later." class="inline-flex items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 hover:underline dark:bg-rose-900/40 dark:text-rose-200">No OT request</a>{% endif %}
+                {% endif %}
+                {% for ex in row.location_exceptions %}
+                    {% if ex.location_verification_status == 'pending' %}<span class="badge badge-warn">Location pending</span>
+                    {% elif ex.location_verification_status is None %}<span class="badge badge-danger">Location exception</span>{% endif %}
+                {% endfor %}
+                {% if row.needs_verification %}
+                    {% if row.verification_status == 'approved' %}<span class="badge badge-success">OT verified</span>
+                    {% elif row.verification_status == 'rejected' %}<span class="badge badge-danger">OT rejected</span>
+                    {% else %}<span title="13h+ day — unusual. Needs HR sign-off before the overtime is trusted." class="badge badge-warn">Needs HR verification</span>{% endif %}
+                {% endif %}
+            </div>
+
+            {% for ex in row.location_exceptions %}
+            {% with lv=ex.location_verification_status %}
+            {# `edit` (Alpine) shows the decision form: open until HR decides, then behind "Change decision"; reopened when the server sends back an error. #}
+            <div class="w-full max-w-xs space-y-1 rounded-xs border border-gray-200 px-2.5 py-2 text-xs dark:border-slate-700"
+                 x-data="{ edit: {% if error_form == 'location' and error_log_id == ex.id %}true{% elif lv and lv != 'pending' %}false{% else %}true{% endif %} }">
+                <div class="flex flex-wrap items-center justify-between gap-1">
+                    <span class="font-medium text-gray-700 dark:text-slate-200">{% if ex.is_time_in %}Time in{% else %}Time out{% endif %} {{ ex.logged_at|t12 }}</span>
+                    {% location_badge ex.location_status lv True %}
+                </div>
+                <p class="text-gray-500 dark:text-slate-400">{{ ex.location_validation_message }}</p>
+                {% if ex.assigned_site %}<p class="text-gray-500 dark:text-slate-400">Assigned project: {{ ex.assigned_site.name }}</p>{% endif %}
+                {% if ex.location_reason %}<p class="text-gray-700 dark:text-slate-200">Employee: “{{ ex.location_reason }}”</p>{% endif %}
+                {% if lv and lv != 'pending' %}
+                    <p class="text-gray-500 dark:text-slate-400">HR {{ lv }}{% if ex.location_remarks %}: “{{ ex.location_remarks }}”{% endif %}
+                        <span class="block text-[11px] text-gray-400 dark:text-slate-500">— {{ ex.location_verified_by.name }}{% if ex.location_verified_at %}, {{ ex.location_verified_at|dt12 }}{% endif %}</span></p>
+                    {% if can.approve_requests %}<button type="button" @click="edit = !edit" class="text-[11px] text-brand-600 hover:underline dark:text-brand-300">Change decision</button>{% endif %}
+                {% endif %}
+                {% if can.approve_requests %}
+                    <form method="POST" action="{% url 'attendance.verify-location' ex.id %}"
+                          hx-post="{% url 'attendance.verify-location' ex.id %}" hx-target="closest tr" hx-swap="outerHTML" hx-disabled-elt="find button[value=approved], find button[value=rejected]"
+                          x-show="edit"{% if error_form == 'location' and error_log_id == ex.id %}{% elif lv and lv != 'pending' %} x-cloak{% endif %} class="space-y-1.5 pt-1">
+                        {% csrf_token %}
+                        <input type="hidden" name="date" value="{{ date|date:'Y-m-d' }}"><input type="hidden" name="search" value="{{ search }}">
+                        {% if error_form == 'location' and error_log_id == ex.id %}<p class="font-medium text-rose-600 dark:text-rose-300">{{ form_error }}</p>{% endif %}
+                        <input type="text" name="remarks" maxlength="500" value="{{ ex.location_remarks|default:'' }}" placeholder="Remarks (optional)" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
+                        <div class="flex gap-1.5"><button name="decision" value="approved" class="btn-app btn-xs btn-success">Approve location</button><button name="decision" value="rejected" class="btn-app btn-xs btn-outline-danger">Reject</button></div>
+                    </form>
+                {% endif %}
+            </div>
+            {% endwith %}
+            {% endfor %}
+
+            {% if row.needs_verification %}
+            <div class="flex w-full max-w-xs flex-col items-end gap-1.5 sm:items-start"
+                 x-data="{ edit: {% if error_form == 'ot' and error_log_id == row.verify_log_id %}true{% elif row.verification_status %}false{% else %}true{% endif %} }">
+                {% if row.verification_status %}
+                    <p class="text-right text-xs text-gray-500 dark:text-slate-400 sm:text-left">“{{ row.verification_remarks }}”<span class="block text-[11px] text-gray-400 dark:text-slate-500">— {{ row.verified_by }}{% if row.verified_at %}, {{ row.verified_at|dt12 }}{% endif %}</span></p>
+                    {% if can.approve_requests %}<button type="button" @click="edit = !edit" class="text-[11px] text-brand-600 hover:underline dark:text-brand-300">Change decision</button>{% endif %}
+                {% endif %}
+                {% if can.approve_requests %}
+                    <form method="POST" action="{% url 'attendance.verify' row.verify_log_id %}"
+                          hx-post="{% url 'attendance.verify' row.verify_log_id %}" hx-target="closest tr" hx-swap="outerHTML" hx-disabled-elt="find button[value=approved], find button[value=rejected]"
+                          x-show="edit"{% if error_form == 'ot' and error_log_id == row.verify_log_id %}{% elif row.verification_status %} x-cloak{% endif %} class="mt-0.5 w-full space-y-1.5">
+                        {% csrf_token %}
+                        <input type="hidden" name="date" value="{{ date|date:'Y-m-d' }}"><input type="hidden" name="search" value="{{ search }}">
+                        {% if error_form == 'ot' and error_log_id == row.verify_log_id %}<p class="text-xs font-medium text-rose-600 dark:text-rose-300">{{ form_error }}</p>{% endif %}
+                        <textarea name="remarks" rows="2" required maxlength="500" placeholder="Reason for the overtime (required)…" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">{{ row.verification_remarks|default:'' }}</textarea>
+                        <div class="flex gap-1.5"><button name="decision" value="approved" class="btn-app btn-xs btn-success">Approve</button><button name="decision" value="rejected" class="btn-app btn-xs btn-outline-danger">Reject</button></div>
+                    </form>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </td>
+</tr>
+{% endwith %}
