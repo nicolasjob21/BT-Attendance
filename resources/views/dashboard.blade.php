@@ -15,15 +15,15 @@
                        x-data="{ now: new Date() }"
                        x-init="setInterval(() => now = new Date(), 1000)">
                         <span x-text="now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' })">{{ now()->format('l, F j, Y') }}</span>
-                        <span class="mx-1 opacity-60">·</span>
-                        <span class="hero-strong tabular-nums text-lg font-bold sm:text-xl" x-text="now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' })">{{ now()->format('g:i:s A') }}</span>
+                        <span class="mx-1 hidden opacity-60 sm:inline">·</span>
+                        <span class="hero-strong block tabular-nums text-lg font-bold sm:inline sm:text-xl" x-text="now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' })">{{ now()->format('g:i:s A') }}</span>
                     </p>
                     <h2 class="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
                         Welcome back, {{ Str::of(auth()->user()->name)->explode(' ')->first() }}
                     </h2>
                     <p class="hero-muted mt-1 text-sm">
                         @if($employee)
-                            {{ $employee->employee_type === 'technical' ? 'Technical staff' : 'Admin staff' }}
+                            {{ $employee->employee_no }}
                             @if($employee->schedule) · {{ $employee->schedule->name }} @endif
                         @endif
                     </p>
@@ -59,6 +59,7 @@
                 'amber'  => 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300',
                 'emerald'=> 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300',
                 'slate'  => 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300',
+                'rose'   => 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300',
             ];
 
             // Stat tiles: what this role cares about, in order. Always four so the row stays composed.
@@ -82,12 +83,23 @@
             if ($onlineNow !== null) {
                 $tiles[] = ['icon' => 'wifi', 'tone' => 'emerald', 'label' => 'Online now', 'value' => $onlineNow, 'valueClass' => 'text-emerald-600 dark:text-emerald-400', 'href' => route('users.index', ['status' => 'online']), 'link' => 'User Management'];
             }
-            if ($canPayroll) {
-                $tiles[] = ['icon' => 'cash', 'tone' => 'accent', 'label' => 'Payroll period', 'value' => $currentPeriod?->label() ?? 'None yet', 'small' => true,
-                    'badge' => $currentPeriod?->status, 'href' => route('payroll.index'), 'link' => 'Open payroll'];
+            if ($canPayroll && $payDay) {
+                // What payroll needs right now: due today / overdue / ready to release / next pay day.
+                $payTone = ['overdue' => 'rose', 'due' => 'amber', 'computed' => 'brand', 'upcoming' => 'accent'][$payDay['state']];
+                $tiles[] = ['icon' => 'cash', 'tone' => $payTone, 'label' => 'Payroll', 'small' => true,
+                    'value' => $payDay['state'] === 'upcoming' ? 'Next pay day '.$payDay['pay_date']->format('M j') : $payDay['title'],
+                    'valueClass' => ['overdue' => 'text-rose-600 dark:text-rose-400', 'due' => 'text-amber-600 dark:text-amber-300', 'computed' => 'text-brand-700 dark:text-brand-300', 'upcoming' => ''][$payDay['state']],
+                    'sub' => $payDay['state'] === 'upcoming' ? ($payDay['days'] === 0 ? 'Today' : 'in '.$payDay['days'].' day'.($payDay['days'] === 1 ? '' : 's')).' · '.$payDay['pay_date']->format('l') : \Illuminate\Support\Str::limit($payDay['message'], 60),
+                    'href' => $payDay['period'] ? route('payroll.index', ['period' => $payDay['period']->id]) : route('payroll.index'),
+                    'link' => ['overdue' => 'Run payroll', 'due' => 'Run payroll', 'computed' => 'Review & release', 'upcoming' => 'Open payroll'][$payDay['state']]];
             }
             if (! $canClock && ! $canApprove) {
                 $tiles[] = ['icon' => 'list', 'tone' => 'slate', 'label' => 'My attendance', 'value' => '—', 'href' => route('attendance.index'), 'link' => 'View history'];
+            }
+            // Employees only have three personal tiles — the fourth is their next pay day.
+            if (count($tiles) < 4 && $nextPayDay) {
+                $tiles[] = ['icon' => 'cash', 'tone' => 'emerald', 'label' => 'Next pay day', 'value' => $nextPayDay->format('M j'),
+                    'sub' => $nextPayDay->format('l').' · '.($nextPayDay->day === 15 ? '1st–15th' : '16th–end').' cutoff', 'href' => route('payroll.mine'), 'link' => 'My payslips'];
             }
             $tiles = array_slice($tiles, 0, 4);
 
@@ -123,16 +135,16 @@
         @endphp
 
         {{-- Stat tiles --}}
-        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
             @foreach($tiles as $t)
-                <div class="card card-hover flex flex-col p-5">
-                    <div class="flex items-center gap-3">
+                <div class="card card-hover flex min-w-0 flex-col p-4 sm:p-5">
+                    <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
                         <span class="icon-chip {{ $chip[$t['tone']] }}">
                             <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">{!! $icons[$t['icon']] !!}</svg>
                         </span>
                         <span class="eyebrow">{{ $t['label'] }}</span>
                     </div>
-                    <p class="mt-4 font-bold tabular-nums text-gray-900 dark:text-slate-100 {{ ($t['small'] ?? false) ? 'text-lg' : 'text-3xl' }} {{ $t['valueClass'] ?? '' }}">{{ $t['value'] }}</p>
+                    <p class="mt-3 break-words font-bold tabular-nums text-gray-900 dark:text-slate-100 sm:mt-4 {{ ($t['small'] ?? false) ? 'text-base sm:text-lg' : 'text-2xl sm:text-3xl' }} {{ $t['valueClass'] ?? '' }}">{{ $t['value'] }}</p>
                     @if(!empty($t['badge']))
                         <div class="mt-1"><x-status-badge :status="$t['badge']" /></div>
                     @elseif(!empty($t['sub']))
@@ -170,5 +182,49 @@
             </div>
         </div>
 
+        {{-- Recent activity: last punches and latest requests --}}
+        @if($canClock && $employee)
+            <div class="grid gap-4 lg:grid-cols-2">
+                <div class="card overflow-hidden">
+                    <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3 dark:border-slate-700">
+                        <p class="eyebrow">Recent attendance</p>
+                        <a href="{{ route('attendance.index') }}" class="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">All attendance →</a>
+                    </div>
+                    <ul class="divide-y divide-gray-100 dark:divide-slate-700">
+                        @forelse($recentLogs as $log)
+                            <li class="flex items-center gap-3 px-5 py-2.5 text-sm">
+                                <span class="badge {{ $log->log_type === 'time_in' ? 'badge-success' : 'badge-neutral' }} w-20 justify-center">{{ $log->log_type === 'time_in' ? 'Time in' : 'Time out' }}</span>
+                                <span class="min-w-0 flex-1 text-gray-700 dark:text-slate-200"><span class="whitespace-nowrap">{{ $log->logged_at->format('D, M j') }}</span> <span class="hidden text-gray-400 sm:inline dark:text-slate-500">·</span> <span class="block truncate text-xs text-gray-500 sm:inline sm:text-sm sm:text-gray-700 dark:text-slate-400 sm:dark:text-slate-200">{{ $log->site?->name ?? 'Location not verified' }}</span></span>
+                                <span class="tabular-nums font-medium text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}</span>
+                            </li>
+                        @empty
+                            <li><x-empty-state icon="clock" title="No punches yet" hint="Your clock ins and outs will show here." class="py-8" /></li>
+                        @endforelse
+                    </ul>
+                </div>
+
+                <div class="card overflow-hidden">
+                    <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3 dark:border-slate-700">
+                        <p class="eyebrow">My requests</p>
+                        <a href="{{ route('leave.index') }}" class="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">Leave &amp; overtime →</a>
+                    </div>
+                    <ul class="divide-y divide-gray-100 dark:divide-slate-700">
+                        @forelse($recentRequests as $r)
+                            @php $tone = ['approved' => 'badge-success', 'denied' => 'badge-danger', 'pending' => 'badge-warn'][$r['status']] ?? 'badge-neutral'; @endphp
+                            <li class="flex items-center gap-3 px-5 py-2.5 text-sm">
+                                <a href="{{ $r['href'] }}" class="min-w-0 flex-1 truncate">
+                                    <span class="font-medium text-gray-900 dark:text-slate-100">{{ $r['kind'] }}</span>
+                                    <span class="text-gray-500 dark:text-slate-400">· {{ $r['when'] }}</span>
+                                </a>
+                                <span class="text-xs text-gray-400 dark:text-slate-500">{{ $r['at']->diffForHumans(null, true) }} ago</span>
+                                <span class="badge {{ $tone }} capitalize">{{ $r['status'] }}</span>
+                            </li>
+                        @empty
+                            <li><x-empty-state icon="calendar" title="No requests yet" hint="Leave and overtime you file will show here with their status." class="py-8" /></li>
+                        @endforelse
+                    </ul>
+                </div>
+            </div>
+        @endif
     </div>
 </x-app-layout>

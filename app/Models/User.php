@@ -15,7 +15,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'username', 'email', 'password', 'profile_photo_path', 'last_seen_at', 'last_login_at', 'last_login_ip', 'disabled_at'])]
+#[Fillable(['name', 'username', 'email', 'password', 'profile_photo_path', 'last_seen_at', 'last_login_at', 'last_login_ip', 'disabled_at', 'must_change_password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -71,6 +71,21 @@ class User extends Authenticatable
     {
         return $this->last_seen_at !== null
             && $this->last_seen_at->gt(now()->subSeconds(self::PRESENCE_ONLINE_WITHIN));
+    }
+
+    /**
+     * Give the user an administrator-chosen (temporary) password. The account is
+     * flagged so their next sign-in demands a password of their own choosing.
+     */
+    public function setTemporaryPassword(string $plain): void
+    {
+        $this->forceFill(['password' => $plain, 'must_change_password' => true])->save();
+    }
+
+    /** The user picked their own password; clear the temporary-password flag. */
+    public function setOwnPassword(string $plain): void
+    {
+        $this->forceFill(['password' => $plain, 'must_change_password' => false])->save();
     }
 
     /** Blocked from signing in (kept on record, unlike a deleted account). */
@@ -134,6 +149,7 @@ class User extends Authenticatable
             'last_seen_at' => 'datetime',
             'last_login_at' => 'datetime',
             'disabled_at' => 'datetime',
+            'must_change_password' => 'boolean',
             'password' => 'hashed',
         ];
     }

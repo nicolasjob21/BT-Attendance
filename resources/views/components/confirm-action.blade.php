@@ -37,7 +37,7 @@ $triggerClasses = $variant === 'primary'
     : "btn-app {$sizeClass} {$trigger}";
 @endphp
 
-<div x-data="{ open: false }" class="inline-block">
+<div x-data="{ open: false }" class="inline-block {{ str_contains($attributes->get('class', ''), 'w-full') ? 'w-full sm:w-auto' : '' }}">
     <button type="button" @click="open = true" {{ $attributes->merge(['class' => $triggerClasses]) }}>{{ $button }}</button>
 
     <template x-teleport="body">

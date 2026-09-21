@@ -26,14 +26,27 @@ class LeaveController extends Controller
 
         $requests = $query->paginate(20);
 
-        return view('leave.index', compact('requests', 'canApprove'));
+        $scope = LeaveRequest::query()->when(! $canApprove && $employee, fn ($q) => $q->where('employee_id', $employee->id));
+        $stats = [
+            'pending' => (clone $scope)->where('status', 'pending')->count(),
+            'approved_month' => (clone $scope)->where('status', 'approved')->whereMonth('date_from', now()->month)->whereYear('date_from', now()->year)->count(),
+            'days_year' => (float) (clone $scope)->where('status', 'approved')->whereYear('date_from', now()->year)->sum('days'),
+            'denied_year' => (clone $scope)->where('status', 'denied')->whereYear('date_from', now()->year)->count(),
+        ];
+
+        return view('leave.index', compact('requests', 'canApprove', 'stats'));
     }
 
     public function create(Request $request)
     {
         $leaveTypes = LeaveType::orderBy('name')->get();
+        $employee = $request->user()->employee;
+        $facts = $employee ? [
+            ['label' => 'Pending', 'value' => $employee->leaveRequests()->where('status', 'pending')->count(), 'hint' => 'awaiting approval', 'tone' => 'warn'],
+            ['label' => 'Days this year', 'value' => rtrim(rtrim(number_format((float) $employee->leaveRequests()->where('status', 'approved')->whereYear('date_from', now()->year)->sum('days'), 1), '0'), '.'), 'hint' => 'approved leave', 'tone' => 'brand'],
+        ] : [];
 
-        return view('leave.create', compact('leaveTypes'));
+        return view('leave.create', compact('leaveTypes', 'facts'));
     }
 
     public function store(Request $request)
@@ -73,8 +86,8 @@ class LeaveController extends Controller
         ]);
 
         $portion = $data['day_portion'] === 'full'
-            ? "{$days} day(s) from " . Carbon::parse($data['date_from'])->format('M j')
-            : 'Half day on ' . Carbon::parse($data['date_from'])->format('M j');
+            ? "{$days} day(s) from ".Carbon::parse($data['date_from'])->format('M j')
+            : 'Half day on '.Carbon::parse($data['date_from'])->format('M j');
         $this->notifyApprovers('Leave', $employee->full_name, $portion, route('leave.index'));
 
         return redirect()->route('leave.index')->with('status', 'Leave request submitted for approval.');
@@ -87,8 +100,12 @@ class LeaveController extends Controller
         abort_unless($employee, 403);
 
         $scheduledOut = optional($employee->schedule)->time_out; // e.g. "17:30:00" or null
+        $facts = [
+            ['label' => 'Scheduled out', 'value' => $scheduledOut ? Carbon::parse($scheduledOut)->format('g:i A') : '—', 'hint' => 'your normal time out'],
+            ['label' => 'Early leaves', 'value' => $employee->leaveRequests()->where('is_early_leave', true)->whereMonth('date_from', now()->month)->whereYear('date_from', now()->year)->count(), 'hint' => 'this month'],
+        ];
 
-        return view('leave.early', compact('scheduledOut'));
+        return view('leave.early', compact('scheduledOut', 'facts'));
     }
 
     /**
@@ -128,7 +145,7 @@ class LeaveController extends Controller
         $this->notifyApprovers(
             'Early leave',
             $employee->full_name,
-            'Sick — out by ' . Carbon::parse($data['requested_time_out'])->format('g:i A') . ' today',
+            'Sick — out by '.Carbon::parse($data['requested_time_out'])->format('g:i A').' today',
             route('leave.index'),
         );
 

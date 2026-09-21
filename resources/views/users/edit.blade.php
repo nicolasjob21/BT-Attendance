@@ -63,13 +63,13 @@
                 </div>
             </div>
 
-            <div class="flex items-center justify-between border-t border-gray-100 dark:border-slate-700 pt-5">
+            <div class="form-footer border-t border-gray-100 dark:border-slate-700 pt-5">
                 @if($user->employee)
                     <a href="{{ route('employees.edit', $user->employee) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">Edit employee profile (salary, schedule, site) →</a>
                 @else
-                    <span></span>
+                    <span class="hidden sm:block"></span>
                 @endif
-                <div class="flex gap-2">
+                <div class="form-footer-actions">
                     <a href="{{ route('users.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
                     <button type="submit" class="btn-app btn-md btn-brand">Save changes</button>
                 </div>

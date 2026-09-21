@@ -5,9 +5,13 @@
     <x-slot name="back">{{ route('leave.index') }}</x-slot>
     <x-slot name="backLabel">Back to Leave</x-slot>
 
-    <div class="mx-auto max-w-xl" x-data="{ portion: @js(old('day_portion', 'full')), get half() { return this.portion !== 'full' } }">
+    <div class="page-form form-split" x-data="{ portion: @js(old('day_portion', 'full')), get half() { return this.portion !== 'full' } }">
         <form method="POST" action="{{ route('leave.store') }}" class="space-y-5 card p-6">
             @csrf
+            <div class="border-b border-gray-100 pb-4 dark:border-slate-700">
+                <h2 class="font-display text-base font-bold text-gray-900 dark:text-slate-100">Leave request</h2>
+                <p class="mt-0.5 text-sm text-gray-500 dark:text-slate-400">Goes to HR for approval. You will be notified when it is decided.</p>
+            </div>
 
             <div>
                 <label for="leave_type_id" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">
@@ -63,5 +67,12 @@
                 <button type="submit" class="btn-app btn-md btn-brand">Submit request</button>
             </div>
         </form>
+
+        <x-form-aside title="How leave works" :facts="$facts">
+            <li><b class="text-gray-800 dark:text-slate-100">Full day</b> — pick the leave type and the dates; consecutive days count once each.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Half day</b> — morning or afternoon; counted as 0.5 day and excuses the missing half in payroll once approved.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Leaving early or sick today?</b> Use <a href="{{ route('leave.early.create') }}" class="font-medium text-brand-700 hover:underline dark:text-brand-300">Go home early / Sick</a> instead — it records your planned time out.</li>
+            <li>Unapproved absences and undertime are deducted at your daily / per-minute rate, so file before the day when you can.</li>
+        </x-form-aside>
     </div>
 </x-app-layout>

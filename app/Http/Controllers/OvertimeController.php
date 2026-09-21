@@ -38,7 +38,15 @@ class OvertimeController extends Controller
         // derived from attendance the first time anyone looks at them.
         $requests->getCollection()->each(fn (OvertimeRequest $r) => $this->syncActualHours($r));
 
-        return view('overtime.index', compact('requests', 'canApprove'));
+        $scope = OvertimeRequest::query()->when(! $canApprove && $employee, fn ($q) => $q->where('employee_id', $employee->id));
+        $stats = [
+            'pending' => (clone $scope)->where('status', 'pending')->count(),
+            'approved_month' => (clone $scope)->where('status', 'approved')->whereMonth('ot_date', now()->month)->whereYear('ot_date', now()->year)->count(),
+            'hours_month' => (float) (clone $scope)->where('status', 'approved')->whereMonth('ot_date', now()->month)->whereYear('ot_date', now()->year)->sum('hours'),
+            'denied_year' => (clone $scope)->where('status', 'denied')->whereYear('ot_date', now()->year)->count(),
+        ];
+
+        return view('overtime.index', compact('requests', 'canApprove', 'stats'));
     }
 
     /**
@@ -80,6 +88,10 @@ class OvertimeController extends Controller
             'restDayStart' => '08:00',
             'restDayEnd' => '17:00',
             'minDate' => Carbon::today()->subDays(self::LATE_FILING_DAYS)->toDateString(),
+            'facts' => [
+                ['label' => 'Pending', 'value' => $employee->overtimeRequests()->where('status', 'pending')->count(), 'hint' => 'awaiting approval', 'tone' => 'warn'],
+                ['label' => 'OT hours', 'value' => rtrim(rtrim(number_format((float) $employee->overtimeRequests()->where('status', 'approved')->whereMonth('ot_date', now()->month)->whereYear('ot_date', now()->year)->sum('hours'), 2), '0'), '.') ?: '0', 'hint' => 'approved · '.now()->format('F'), 'tone' => 'brand'],
+            ],
         ]);
     }
 
@@ -94,12 +106,12 @@ class OvertimeController extends Controller
         abort_unless($employee, 403);
 
         $data = $request->validate([
-            'ot_date' => ['required', 'date', 'after_or_equal:' . Carbon::today()->subDays(self::LATE_FILING_DAYS)->toDateString()],
+            'ot_date' => ['required', 'date', 'after_or_equal:'.Carbon::today()->subDays(self::LATE_FILING_DAYS)->toDateString()],
             'planned_start' => ['required', 'date_format:H:i'],
             'planned_end' => ['required', 'date_format:H:i'],
             'reason' => ['required', 'string', 'min:10', 'max:1000'],
         ], [
-            'ot_date.after_or_equal' => 'Overtime must be requested in advance — pick today or a future date (up to ' . self::LATE_FILING_DAYS . ' days back is allowed for late filing, e.g. weekend site work filed on Monday).',
+            'ot_date.after_or_equal' => 'Overtime must be requested in advance — pick today or a future date (up to '.self::LATE_FILING_DAYS.' days back is allowed for late filing, e.g. weekend site work filed on Monday).',
             'reason.required' => 'Tell your approver what the overtime is for (the task or work to be done).',
             'reason.min' => 'Please describe the work in a bit more detail.',
         ]);
@@ -139,13 +151,13 @@ class OvertimeController extends Controller
             new ApprovalRequested(
                 'Overtime',
                 $employee->full_name,
-                "{$requestedHours}h on " . $ot->ot_date->format('M j') . ' (' . $ot->plannedWindow() . ') — ' . Str::limit($data['reason'], 80),
+                "{$requestedHours}h on ".$ot->ot_date->format('M j').' ('.$ot->plannedWindow().') — '.Str::limit($data['reason'], 80),
                 route('overtime.index'),
             ),
         );
 
         return redirect()->route('overtime.index')
-            ->with('status', "Overtime request for {$requestedHours}h on " . $ot->ot_date->format('M j') . ' sent for approval.');
+            ->with('status', "Overtime request for {$requestedHours}h on ".$ot->ot_date->format('M j').' sent for approval.');
     }
 
     /** Hours between two HH:MM times, allowing a window that crosses midnight. */
@@ -206,7 +218,7 @@ class OvertimeController extends Controller
 
         // Fixed-schedule weekday: OT is everything past the scheduled clock-out.
         if ($scheduledTimeOut && ! $isWeekend) {
-            $scheduledOut = Carbon::parse($date . ' ' . $scheduledTimeOut);
+            $scheduledOut = Carbon::parse($date.' '.$scheduledTimeOut);
             $minutes = max(0, (int) round($scheduledOut->diffInMinutes($actualOut)));
             $hours = round($minutes / 60, 2);
 

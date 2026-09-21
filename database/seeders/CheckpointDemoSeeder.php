@@ -184,7 +184,7 @@ class CheckpointDemoSeeder extends Seeder
     /** @return list<Employee> */
     private function demoEmployees(Site $site): array
     {
-        $schedule = Schedule::where('is_flexible', true)->first() ?? Schedule::first();
+        $schedule = Schedule::where('is_flexible', false)->first() ?? Schedule::first();
         $n = (int) (Employee::max('id') ?? 0) + 100;
         $out = [];
         foreach (self::DEMO_PEOPLE as [$first, $last, $email]) {
@@ -197,7 +197,7 @@ class CheckpointDemoSeeder extends Seeder
             }
             $employee = Employee::firstOrCreate(['email' => $email], [
                 'user_id' => $user->id, 'employee_no' => 'EMP-'.str_pad((string) ++$n, 4, '0', STR_PAD_LEFT),
-                'first_name' => $first, 'last_name' => $last, 'employee_type' => 'technical', 'schedule_id' => $schedule?->id,
+                'first_name' => $first, 'last_name' => $last, 'employee_type' => 'admin', 'schedule_id' => $schedule?->id,
                 'monthly_salary' => 22000, 'daily_rate' => 1000, 'date_hired' => '2025-03-03', 'status' => 'active',
             ]);
             if (! $employee->projectAssignments()->activeOn()->exists()) {

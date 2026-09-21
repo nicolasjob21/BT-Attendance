@@ -24,26 +24,23 @@ class EmployeeController extends Controller
     public function index(Request $request)
     {
         $search = $request->string('search')->toString();
-        $type = $request->string('type')->toString();
         $status = $request->string('status')->toString();
 
         $employees = Employee::with(['schedule', 'user', 'activeAssignment.site:id,name'])
-            ->when($search, function ($q) use ($search) {
-                $q->where(function ($sub) use ($search) {
-                    $sub->where('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('employee_no', 'like', "%{$search}%")
-                        ->orWhereHas('user', fn ($u) => $u->where('username', 'like', "%{$search}%"));
-                });
-            })
-            ->when($type, fn ($q) => $q->where('employee_type', $type))
+            ->when($search, fn ($q) => $q->search($search))
             ->when($status, fn ($q) => $q->where('status', $status))
             ->orderBy('last_name')
             ->paginate(25)
             ->withQueryString();
 
-        return view('employees.index', compact('employees', 'search', 'type', 'status'));
+        $stats = [
+            'active' => Employee::where('status', 'active')->count(),
+            'on_project' => Employee::where('status', 'active')->whereHas('activeAssignment')->count(),
+            'inactive' => Employee::where('status', '!=', 'active')->count(),
+            'payroll' => (float) Employee::where('status', 'active')->sum('monthly_salary'),
+        ];
+
+        return view('employees.index', compact('employees', 'search', 'status', 'stats'));
     }
 
     public function create()
@@ -66,6 +63,7 @@ class EmployeeController extends Controller
                 'email' => $data['email'],
                 'password' => Hash::make($tempPassword),
                 'email_verified_at' => now(),
+                'must_change_password' => true,
             ]);
             // Add Employee always creates a staff account. The authorized roles
             // (Super Admin, Admin, Developer) are assigned in User Management.
@@ -105,7 +103,7 @@ class EmployeeController extends Controller
                     'email' => $data['email'],
                 ]);
                 if (! empty($data['password'])) {
-                    $user->update(['password' => Hash::make($data['password'])]);
+                    $user->setTemporaryPassword($data['password']);
                 }
             }
         });
@@ -121,7 +119,7 @@ class EmployeeController extends Controller
         return back()->with('status', "{$employee->full_name} is now {$employee->status}.");
     }
 
-    // ---- Bulk Excel (.xlsx) import ----
+    // ---- Bulk import (.xlsx / .xls / .csv) ----
 
     public function importForm()
     {
@@ -163,10 +161,10 @@ class EmployeeController extends Controller
 
     public function importTemplate()
     {
-        $headers = ['first_name', 'last_name', 'username', 'email', 'employee_type', 'monthly_salary'];
+        $headers = ['first_name', 'last_name', 'username', 'email', 'monthly_salary'];
         $samples = [
-            ['Juan', 'Dela Cruz', 'brite-juan', 'juan@brite-tsi.com', 'technical', 25000],
-            ['Maria', 'Santos', '', 'maria@brite-tsi.com', 'admin', 20000],
+            ['Juan', 'Dela Cruz', 'brite-juan', 'juan@brite-tsi.com', 25000],
+            ['Maria', 'Santos', '', 'maria@brite-tsi.com', 20000],
         ];
 
         $spreadsheet = new Spreadsheet;
@@ -175,11 +173,11 @@ class EmployeeController extends Controller
         $sheet->fromArray([$headers, ...$samples], null, 'A1');
 
         // Style the header row: bold, brand fill, centered.
-        $sheet->getStyle('A1:F1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
-        $sheet->getStyle('A1:F1')->getFill()->setFillType(Fill::FILL_SOLID)
+        $sheet->getStyle('A1:E1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:E1')->getFill()->setFillType(Fill::FILL_SOLID)
             ->getStartColor()->setARGB('FF0E7490'); // brand-700-ish teal
-        $sheet->getStyle('A1:F1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        foreach (range('A', 'F') as $col) {
+        $sheet->getStyle('A1:E1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        foreach (range('A', 'E') as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
         $sheet->freezePane('A2'); // keep header visible while scrolling
@@ -196,14 +194,13 @@ class EmployeeController extends Controller
     public function import(Request $request)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx,xls'],
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv,txt'],
             'default_password' => ['required', 'string', 'min:8'],
         ]);
 
-        $schedules = Schedule::all();
-        $adminSched = $schedules->firstWhere('is_flexible', false);
-        $flexSched = $schedules->firstWhere('is_flexible', true);
+        $officeSched = Schedule::where('is_flexible', false)->orderBy('id')->first();
 
+        // PhpSpreadsheet picks the reader from the content, so .xlsx, .xls and .csv all work.
         $sheet = IOFactory::load($request->file('file')->getRealPath())->getActiveSheet();
         $rows = $sheet->toArray(null, true, false, false); // 0-indexed rows/cols, raw (unformatted) values
 
@@ -227,7 +224,6 @@ class EmployeeController extends Controller
             $username = User::normalizeUsername($r['username'] ?? '');
             $first = trim($r['first_name'] ?? '');
             $last = trim($r['last_name'] ?? '');
-            $type = in_array(($r['employee_type'] ?? ''), ['admin', 'technical'], true) ? $r['employee_type'] : 'admin';
             $salary = is_numeric($r['monthly_salary'] ?? null) ? (float) $r['monthly_salary'] : 0;
 
             if ($email === '' || $first === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -260,13 +256,14 @@ class EmployeeController extends Controller
             }
             $usedUsernames[] = $username;
 
-            DB::transaction(function () use ($first, $last, $username, $email, $type, $salary, $request, $adminSched, $flexSched) {
+            DB::transaction(function () use ($first, $last, $username, $email, $salary, $request, $officeSched) {
                 $user = User::create([
                     'name' => trim("{$first} {$last}"),
                     'username' => $username,
                     'email' => $email,
                     'password' => Hash::make($request->string('default_password')),
                     'email_verified_at' => now(),
+                    'must_change_password' => true,
                 ]);
                 $user->assignRole('employee');
 
@@ -275,8 +272,8 @@ class EmployeeController extends Controller
                     'first_name' => $first,
                     'last_name' => $last,
                     'email' => $email,
-                    'employee_type' => $type,
-                    'schedule_id' => ($type === 'technical' ? $flexSched : $adminSched)?->id,
+                    'employee_type' => 'admin',
+                    'schedule_id' => $officeSched?->id,
                     'monthly_salary' => $salary,
                     'daily_rate' => round($salary / max(1, PayrollRates::get('working_days_per_month')), 2),
                     'status' => 'active',
@@ -318,8 +315,8 @@ class EmployeeController extends Controller
                 Rule::unique('employees', 'email')->ignore($employee?->id),
             ],
             'phone' => ['nullable', 'string', 'max:50'],
-            'employee_type' => ['required', 'in:admin,technical'],
-            'schedule_id' => ['nullable', 'exists:schedules,id'],
+            'payout_method' => ['nullable', 'in:card,cash'],
+            'bank_account_no' => ['nullable', 'string', 'max:40', 'required_if:payout_method,card'],
             'monthly_salary' => ['required', 'numeric', 'min:0'],
             'date_hired' => ['nullable', 'date'],
             'status' => ['required', 'in:active,inactive,on_leave'],
@@ -335,8 +332,10 @@ class EmployeeController extends Controller
             'last_name' => $data['last_name'],
             'email' => $data['email'],
             'phone' => $data['phone'] ?? null,
-            'employee_type' => $data['employee_type'],
-            'schedule_id' => $data['schedule_id'] ?? null,
+            'payout_method' => $data['payout_method'] ?? 'cash',
+            'bank_account_no' => ($data['payout_method'] ?? 'cash') === 'card' ? ($data['bank_account_no'] ?? null) : null,
+            'employee_type' => 'admin',
+            'schedule_id' => Schedule::where('is_flexible', false)->orderBy('id')->value('id'), // one fixed office shift for everyone
             'monthly_salary' => $data['monthly_salary'],
             'daily_rate' => round(((float) $data['monthly_salary']) / max(1, PayrollRates::get('working_days_per_month')), 2),
             'date_hired' => $data['date_hired'] ?? null,
@@ -347,7 +346,6 @@ class EmployeeController extends Controller
     private function formData(): array
     {
         return [
-            'schedules' => Schedule::orderBy('name')->get(),
         ];
     }
 }

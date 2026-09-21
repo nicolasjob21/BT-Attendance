@@ -23,39 +23,26 @@ class CheckpointCampaignController extends Controller
         private CheckpointDispatcher $dispatcher,
     ) {}
 
-    /** Module dashboard: live checkpoints, drafts, follow-ups, recent history. */
+    /** One list of every checkpoint: running first, then upcoming, then finished. */
     public function index()
     {
         $this->dispatcher->sweep();
 
-        $withCounts = fn ($q) => $q->with('site:id,name')->withCount([
-            'participants',
-            'checkpoints as completed_count' => fn ($c) => $c->completed(),
-            'checkpoints as non_compliant_count' => fn ($c) => $c->nonCompliant(),
-        ]);
-
-        $live = $withCounts(CheckpointCampaign::live())->orderByRaw("status = 'active' desc")->latest('starts_at')->get();
-        $drafts = $withCounts(CheckpointCampaign::status(CheckpointCampaign::DRAFT))->orderByRaw('scheduled_start_at is null')->orderBy('scheduled_start_at')->latest('id')->get();
-        $expired = $withCounts(CheckpointCampaign::status(CheckpointCampaign::EXPIRED))->latest('expires_at')->get();
-        $recentHistory = $withCounts(CheckpointCampaign::history())->with('closer:id,name')->latest('updated_at')->take(5)->get();
-
-        $followUps = Checkpoint::nonCompliant()->whereNull('reviewed_at')
-            ->whereHas('campaign', fn ($q) => $q->whereIn('status', [CheckpointCampaign::EXPIRED, CheckpointCampaign::COMPLETED]))
-            ->with(['employee:id,first_name,last_name,employee_no', 'site:id,name', 'campaign:id,name,expires_at'])
-            ->latest('updated_at')->take(15)->get();
+        $campaigns = CheckpointCampaign::query()
+            ->with('site:id,name')
+            ->withCount(['participants', 'checkpoints as completed_count' => fn ($c) => $c->completed()])
+            ->orderByRaw("case status when 'active' then 0 when 'paused' then 0 when 'draft' then 1 else 2 end")
+            ->orderByRaw('coalesce(starts_at, scheduled_start_at, created_at) desc')
+            ->paginate(20);
 
         $stats = [
-            'active' => $live->where('status', CheckpointCampaign::ACTIVE)->count(),
-            'paused' => $live->where('status', CheckpointCampaign::PAUSED)->count(),
-            'employees_live' => DB::table('checkpoint_campaign_participants')->whereIn('campaign_id', $live->pluck('id'))->distinct()->count('employee_id'),
-            'completed_live' => (int) $live->sum('completed_count'),
-            'awaiting_followup' => Checkpoint::nonCompliant()->whereNull('reviewed_at')->count(),
-            'pending_review' => Checkpoint::needsReview()->count(),
-            'escalated' => Checkpoint::whereNotNull('escalated_at')->whereNull('reviewed_at')->count(),
-            'expired_open' => $expired->count(),
+            'live' => CheckpointCampaign::live()->count(),
+            'scheduled' => CheckpointCampaign::status(CheckpointCampaign::DRAFT)->whereNotNull('scheduled_start_at')->count(),
+            'today' => Checkpoint::whereDate('created_at', today())->count(),
+            'today_done' => Checkpoint::whereDate('created_at', today())->completed()->count(),
         ];
 
-        return view('checkpoints.index', compact('live', 'drafts', 'expired', 'recentHistory', 'followUps', 'stats'));
+        return view('checkpoints.index', compact('campaigns', 'stats'));
     }
 
     public function history(Request $request)
@@ -171,35 +158,39 @@ class CheckpointCampaignController extends Controller
      * Monitoring page: shared checkpoint info, live counters, and the two
      * tables (completed / pending & non-compliant). Also the draft review page.
      */
+    /**
+     * Monitoring page: every employee assigned to the checkpoint and whether
+     * they completed it. One row per employee, nothing else.
+     */
     public function show(CheckpointCampaign $campaign)
     {
         $this->dispatcher->sweep();
-        $campaign->refresh()->load(['site', 'creator:id,name', 'activator:id,name', 'closer:id,name']);
+        $campaign->refresh()->load(['site', 'activator:id,name']);
 
-        $employees = $campaign->employees()->with('activeAssignment.site:id,name')->orderBy('first_name')->orderBy('last_name')->get();
+        $employees = $campaign->employees()->orderBy('last_name')->orderBy('first_name')->get();
 
-        $responses = $campaign->checkpoints()
-            ->with(['employee:id,first_name,last_name,employee_no', 'matchedSite:id,name', 'reviewer:id,name'])
-            ->get()
-            ->sortBy(fn ($cp) => $cp->employee?->full_name);
+        $responses = $campaign->checkpoints()->with('employee:id,first_name,last_name,employee_no')->get()->keyBy('employee_id');
         $responses->each->setRelation('campaign', $campaign);
 
-        $completed = $responses->filter->isCompleted()->sortBy('submitted_at')->values();
-        $pending = $responses->reject->isCompleted()->values();
+        // rows: [employee, checkpoint|null, result: completed|waiting|not_completed|pending(draft)]
+        $rows = $employees->map(function ($e) use ($responses, $campaign) {
+            $cp = $responses->get($e->id);
+
+            return [
+                'employee' => $e,
+                'checkpoint' => $cp,
+                'result' => $cp ? $cp->result() : ($campaign->isDraft() ? 'pending' : 'not_completed'),
+            ];
+        })->sortBy(fn ($r) => ['waiting' => 0, 'not_completed' => 1, 'completed' => 2, 'pending' => 3][$r['result']])->values();
 
         $counts = [
-            'total' => $campaign->participants()->count(),
-            'completed' => $completed->count(),
-            'pending' => $responses->filter(fn ($cp) => in_array($cp->status, [Checkpoint::PENDING, Checkpoint::NOTIFIED], true))->count(),
-            'missed' => $responses->where('status', Checkpoint::MISSED)->count(),
-            'outside' => $responses->where('status', Checkpoint::OUTSIDE_GEOFENCE)->count(),
-            'review' => $responses->where('status', Checkpoint::PENDING_REVIEW)->count(),
-            'open_follow_ups' => $pending->filter(fn ($cp) => $cp->isNonCompliant() && ! $cp->reviewed_at)->count(),
+            'total' => $rows->count(),
+            'completed' => $rows->where('result', 'completed')->count(),
+            'waiting' => $rows->where('result', 'waiting')->count(),
+            'not_completed' => $rows->where('result', 'not_completed')->count(),
         ];
 
-        $audit = $campaign->auditLogs()->with('user:id,name')->take(40)->get();
-
-        return view('checkpoints.show', compact('campaign', 'employees', 'completed', 'pending', 'counts', 'audit'));
+        return view('checkpoints.show', compact('campaign', 'rows', 'counts'));
     }
 
     /** Lightweight JSON for the monitoring page's live counters / countdown. */
@@ -340,7 +331,6 @@ class CheckpointCampaignController extends Controller
             'name' => ['required', 'string', 'max:150'],
             'project_site_id' => ['required', 'exists:sites,id'],
             'instruction' => ['required', 'string', 'max:200'],
-            'reason' => ['nullable', 'string', 'max:1000'],
             'employees' => ['required', 'array', 'min:1'],
             'employees.*' => ['integer', 'exists:employees,id'],
             'response_window_minutes' => ['required', 'integer', 'between:3,120'],

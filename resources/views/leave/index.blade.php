@@ -4,14 +4,21 @@
     </x-slot>
 
     <div class="page space-y-4">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p class="text-sm text-gray-500 dark:text-slate-400">
-                {{ $canApprove ? 'All employee leave requests.' : 'Your leave requests.' }}
+                {{ $canApprove ? 'Every employee\'s leave requests — approve or deny the pending ones.' : 'Your leave requests and their status.' }}
             </p>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('leave.early.create') }}" class="btn-app btn-md btn-secondary">Go home early / Sick</a>
                 <a href="{{ route('leave.create') }}" class="btn-app btn-md btn-brand">File Leave</a>
             </div>
+        </div>
+
+        <div class="stat-strip">
+            <x-stat :label="$canApprove ? 'Awaiting approval' : 'Pending'" :value="$stats['pending']" :hint="$stats['pending'] ? 'needs a decision' : 'nothing waiting'" :tone="$stats['pending'] ? 'warn' : 'success'" />
+            <x-stat label="Approved this month" :value="$stats['approved_month']" :hint="now()->format('F')" tone="brand" />
+            <x-stat label="Days taken this year" :value="rtrim(rtrim(number_format($stats['days_year'], 1), '0'), '.')" :hint="'approved leave in '.now()->year" />
+            <x-stat label="Denied this year" :value="$stats['denied_year']" :tone="$stats['denied_year'] ? 'danger' : 'muted'" />
         </div>
 
         <div class="overflow-hidden card">
@@ -70,7 +77,7 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $canApprove ? 7 : 5 }}" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No leave requests.</td></tr>
+                            <tr><td colspan="{{ $canApprove ? 7 : 5 }}" class="p-0"><x-empty-state icon="calendar" title="No leave requests" :hint="$canApprove ? 'Requests employees file will show up here for approval.' : 'File vacation, sick or early-leave requests and track them here.'" :href="route('leave.create')" action="File leave" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

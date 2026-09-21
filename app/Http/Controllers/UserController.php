@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Support\RoleMatrix;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 /**
@@ -132,7 +131,7 @@ class UserController extends Controller
                 'email' => $data['email'],
             ]);
             if (! empty($data['password'])) {
-                $user->update(['password' => Hash::make($data['password'])]);
+                $user->setTemporaryPassword($data['password']);
             }
             $user->syncRoles([$data['role']]);
 

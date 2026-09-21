@@ -5,7 +5,11 @@
         lng: {{ json_encode(old('longitude', $site?->longitude ?? 121.0049)) }},
         radius: {{ json_encode((int) old('geofence_radius_m', $site?->geofence_radius_m ?? 150)) }},
         fresh: {{ json_encode(! $site && ! old('latitude')) }},
-     })" class="grid gap-5 sm:grid-cols-2">
+        address: {{ json_encode(old('address', $site?->address ?? '')) }},
+     })" class="form-split">
+
+  {{-- Left: the facts --}}
+  <div class="grid gap-5 sm:grid-cols-2">
 
     <div class="sm:col-span-2">
         <label for="name" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Location name</label>
@@ -31,22 +35,44 @@
                class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
     </div>
 
-    <div class="sm:col-span-2">
-        <label for="address" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Address <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
-        <input type="text" id="address" name="address" value="{{ old('address', $site?->address) }}"
-               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+    <div class="sm:col-span-2 relative">
+        <label for="address" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Address</label>
+        <div class="flex gap-2">
+            <input type="text" id="address" name="address" value="{{ old('address', $site?->address) }}" autocomplete="off"
+                   x-model="address" @input.debounce.600ms="lookup()" @keydown.enter.prevent="lookup(true)" @keydown.escape="results = []"
+                   placeholder="Street, barangay, city — the map jumps there as you type"
+                   class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+            <button type="button" @click="lookup(true)" class="btn-app btn-md btn-secondary shrink-0" :disabled="searching">
+                <span x-show="!searching">Find on map</span><span x-show="searching" x-cloak>Searching…</span>
+            </button>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400" x-text="lookupHint"></p>
+        {{-- Suggestions --}}
+        <ul x-show="results.length" x-cloak @click.outside="results = []"
+            class="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-auto rounded-xs border border-gray-200 bg-white text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800">
+            <template x-for="r in results" :key="r.place_id">
+                <li>
+                    <button type="button" @click="choose(r)" class="block w-full px-3 py-2 text-left text-gray-700 hover:bg-brand-50 dark:text-slate-200 dark:hover:bg-brand-500/10">
+                        <span class="block font-medium text-gray-900 dark:text-slate-100" x-text="r.display_name.split(',').slice(0, 2).join(',')"></span>
+                        <span class="block truncate text-xs text-gray-500 dark:text-slate-400" x-text="r.display_name"></span>
+                    </button>
+                </li>
+            </template>
+        </ul>
     </div>
 
-    {{-- Map picker: click or drag to set the centre; the circle previews the geofence --}}
+    {{-- Google Maps link → coordinates (the easiest way: share the place from Google Maps and paste) --}}
     <div class="sm:col-span-2">
-        <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Geofence centre &amp; radius</label>
-        <div class="overflow-hidden rounded-xs border border-gray-200 dark:border-hair">
-            <div x-ref="map" class="relative z-0 h-72 w-full bg-gray-100 dark:bg-deep"></div>
-            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 dark:border-hair bg-gray-50 dark:bg-slate-800/60 px-3 py-2 text-xs text-gray-500 dark:text-slate-400">
-                <span>Click the map or drag the pin to set the centre. <span x-show="fresh" class="text-amber-700 dark:text-amber-300">Pin is at a default position — move it to the real site.</span></span>
-                <button type="button" @click="useMyLocation()" class="btn-app btn-xs btn-outline-brand">Use my current location</button>
-            </div>
+        <label for="maps_link" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Google Maps link <span class="text-gray-400 dark:text-slate-500">(easiest)</span></label>
+        <div class="flex gap-2">
+            <input type="text" id="maps_link" x-model="mapsLink" @paste="$nextTick(() => useMapsLink())" @keydown.enter.prevent="useMapsLink()" autocomplete="off"
+                   placeholder="Paste a Google Maps link (Share → Copy link) or coordinates like 14.6111, 121.0052"
+                   class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+            <button type="button" @click="useMapsLink()" class="btn-app btn-md btn-brand shrink-0" :disabled="resolving">
+                <span x-show="!resolving">Use link</span><span x-show="resolving" x-cloak>Reading…</span>
+            </button>
         </div>
+        <p class="mt-1 text-xs" :class="linkError ? 'text-rose-600' : 'text-gray-500 dark:text-slate-400'" x-text="linkHint"></p>
     </div>
 
     <div>
@@ -63,13 +89,6 @@
     </div>
 
     <div>
-        <label for="geofence_radius_m" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Geofence radius (metres)</label>
-        <input type="number" step="10" min="20" max="5000" id="geofence_radius_m" name="geofence_radius_m" x-model.number="radius" @input="syncFromInputs()" required
-               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm tabular-nums focus:border-brand-500 focus:ring-brand-500">
-        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">150–300 m suits most sites; go wider for large construction areas where GPS drifts.</p>
-        @error('geofence_radius_m') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
-    </div>
-    <div>
         <label for="status" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Status</label>
         <select id="status" name="status" required
                 class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
@@ -80,22 +99,111 @@
         <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Only <em>active</em> locations accept new punches.</p>
     </div>
 
-    <div>
-        <label for="active_from" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Active from <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
-        <input type="date" id="active_from" name="active_from" value="{{ old('active_from', $site?->active_from?->format('Y-m-d')) }}"
-               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+    {{-- Project duration: Active from + duration → Active until (auto), still editable --}}
+    <div class="sm:col-span-2 grid gap-4 sm:grid-cols-3" x-data="projectDuration({
+            from: @js(old('active_from', $site?->active_from?->format('Y-m-d'))),
+            until: @js(old('active_until', $site?->active_until?->format('Y-m-d'))),
+        })">
+        <div>
+            <label for="active_from" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Active from <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
+            <input type="date" id="active_from" name="active_from" x-model="from" @change="fromChanged()"
+                   class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+        </div>
+        <div>
+            <label for="duration_value" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Project duration</label>
+            <div class="flex gap-2">
+                <input type="number" id="duration_value" min="1" max="3650" step="1" x-model.number="qty" @input="durationChanged()" placeholder="e.g. 26"
+                       class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-right text-sm tabular-nums focus:border-brand-500 focus:ring-brand-500">
+                <select x-model="unit" @change="durationChanged()" aria-label="Duration unit"
+                        class="rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                    <option value="days">days</option>
+                    <option value="weeks">weeks</option>
+                    <option value="months">months</option>
+                </select>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Fills <i>Active until</i> from the start date.</p>
+        </div>
+        <div>
+            <label for="active_until" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Active until <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
+            <input type="date" id="active_until" name="active_until" x-model="until" @change="untilChanged()"
+                   class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+            @error('active_until') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+        </div>
+        <div class="sm:col-span-3 -mt-1 flex flex-wrap items-center gap-2 text-sm" x-show="from && until" x-cloak>
+            <span class="badge badge-info"><span x-text="fmt(from)"></span>&nbsp;→&nbsp;<span x-text="fmt(until)"></span></span>
+            <span class="text-gray-500 dark:text-slate-400"><b class="text-gray-800 dark:text-slate-100" x-text="days"></b> day(s) · the location stops accepting punches after the last day. Handy for temporary venues (training, a one-week deployment).</span>
+        </div>
     </div>
+  </div>
+
+  {{-- Right: where it is — stays in view while you fill in the rest --}}
+  <aside class="form-aside space-y-5">
+    {{-- Map picker: click or drag to set the centre; the circle previews the geofence --}}
     <div>
-        <label for="active_until" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Active until <span class="text-gray-400 dark:text-slate-500">(optional)</span></label>
-        <input type="date" id="active_until" name="active_until" value="{{ old('active_until', $site?->active_until?->format('Y-m-d')) }}"
-               class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
-        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Handy for temporary venues (training, a one-week deployment).</p>
-        @error('active_until') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+        <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Geofence centre</label>
+        <div class="overflow-hidden rounded-xs border border-gray-200 dark:border-hair">
+            <div x-ref="map" class="relative z-0 h-80 w-full bg-gray-100 dark:bg-deep lg:h-[26rem]"></div>
+            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 dark:border-hair bg-gray-50 dark:bg-slate-800/60 px-3 py-2 text-xs text-gray-500 dark:text-slate-400">
+                <span>Click the map or drag the pin to set the centre. <span x-show="fresh" class="text-amber-700 dark:text-amber-300">Pin is at a default position — move it to the real site.</span></span>
+                <div class="flex flex-wrap gap-1.5">
+                    <a :href="'https://www.google.com/maps?q=' + lat + ',' + lng" target="_blank" rel="noopener" class="btn-app btn-xs btn-secondary">Open in Google Maps</a>
+                    <button type="button" @click="useMyLocation()" class="btn-app btn-xs btn-outline-brand">Use my current location</button>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <div>
+        <label for="geofence_radius_m" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Geofence radius</label>
+        <div class="flex flex-wrap items-center gap-3">
+            <input type="range" min="20" max="2000" step="10" x-model.number="radius" @input="syncFromInputs()" aria-label="Geofence radius slider"
+                   class="h-2 min-w-[140px] flex-1 cursor-pointer accent-brand-500">
+            <div class="relative w-32">
+                <input type="number" step="10" min="20" max="5000" id="geofence_radius_m" name="geofence_radius_m" x-model.number="radius" @input="syncFromInputs()" required
+                       class="w-full rounded-xs border-gray-300 pr-8 text-right text-sm tabular-nums focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">
+                <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">m</span>
+            </div>
+            <div class="flex gap-1">
+                @foreach([100, 150, 300, 500] as $r)
+                    <button type="button" @click="radius = {{ $r }}; syncFromInputs()" :class="radius === {{ $r }} ? 'btn-brand' : 'btn-secondary'" class="btn-app btn-xs">{{ $r }} m</button>
+                @endforeach
+            </div>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Drag the slider and watch the circle on the map. 150–300 m suits most sites; go wider for large construction areas where GPS drifts. Keep it to the <b>work area</b>, not the whole compound.</p>
+        @error('geofence_radius_m') <p class="mt-1 text-sm text-rose-600">{{ $message }}</p> @enderror
+    </div>
+  </aside>
 </div>
 
 @once
 <script>
+    // Active from + duration ⇄ Active until. Editing either date recomputes the
+    // duration; editing the duration recomputes Active until (last day inclusive).
+    function projectDuration(initial) {
+        return {
+            from: initial.from || '', until: initial.until || '', qty: null, unit: 'days',
+            init() { this.recount(); },
+            get days() {
+                if (!this.from || !this.until) return 0;
+                return Math.round((new Date(this.until) - new Date(this.from)) / 86400000) + 1;
+            },
+            durationChanged() {
+                if (!this.qty || this.qty < 1) return;
+                if (!this.from) this.from = this.iso(new Date());
+                const d = new Date(this.from + 'T00:00:00');
+                if (this.unit === 'days') d.setDate(d.getDate() + this.qty - 1);
+                else if (this.unit === 'weeks') d.setDate(d.getDate() + this.qty * 7 - 1);
+                else { d.setMonth(d.getMonth() + this.qty); d.setDate(d.getDate() - 1); }
+                this.until = this.iso(d);
+            },
+            fromChanged() { if (this.qty) this.durationChanged(); else this.recount(); },
+            untilChanged() { this.recount(); },
+            recount() { if (this.from && this.until && this.days > 0) { this.qty = this.days; this.unit = 'days'; } },
+            iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+            fmt(iso) { return iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
+        };
+    }
+
     function sitePicker(initial) {
         return {
             lat: (+initial.lat).toFixed(7),
@@ -103,6 +211,11 @@
             radius: initial.radius,
             fresh: initial.fresh,
             map: null, marker: null, circle: null,
+            address: initial.address || '',
+            results: [], searching: false, lookupHint: 'Type an address and the pin moves there; then fine-tune by dragging the pin.',
+            lastQuery: '',
+            mapsLink: '', resolving: false, linkError: false,
+            linkHint: 'In Google Maps: find the place → Share → Copy link, then paste it here. Short links (maps.app.goo.gl) work too.',
 
             init() {
                 const pt = [parseFloat(this.lat), parseFloat(this.lng)];
@@ -139,6 +252,69 @@
                     this.map.panTo(pt);
                 }
                 if (this.radius > 0) this.circle.setRadius(this.radius);
+            },
+
+            // Google Maps link (or "lat, lng") → coordinates. Long links are parsed in
+            // the browser; anything else is sent to the server, which follows the
+            // short-link redirect and parses the final URL.
+            async useMapsLink() {
+                const v = (this.mapsLink || '').trim();
+                if (!v) return;
+                this.linkError = false;
+                const local = this.parseCoords(v);
+                if (local) return this.placeFromLink(local, 'Pin placed from the link.');
+                this.resolving = true;
+                try {
+                    const res = await fetch('{{ route('sites.resolve-link') }}?url=' + encodeURIComponent(v), { headers: { 'Accept': 'application/json' } });
+                    const data = res.ok ? await res.json() : { ok: false };
+                    if (data.ok) return this.placeFromLink([data.lat, data.lng], 'Pin placed from the link.');
+                    this.linkError = true;
+                    this.linkHint = 'No coordinates found in that link. Use Share → Copy link on the place itself, or paste "lat, lng".';
+                } catch (e) {
+                    this.linkError = true; this.linkHint = 'Could not read the link — check the connection and try again.';
+                } finally { this.resolving = false; }
+            },
+            parseCoords(v) {
+                const tries = [
+                    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+                    /[?&](?:q|query|ll|center|destination)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/,
+                    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+                    /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/,
+                ];
+                const s = decodeURIComponent(v);
+                for (const re of tries) { const m = s.match(re); if (m) { const lat = +m[1], lng = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return [lat, lng]; } }
+                return null;
+            },
+            placeFromLink([lat, lng], msg) {
+                this.setPoint({ lat, lng });
+                this.map.setView([lat, lng], 17);
+                this.linkHint = msg + ' Drag the pin to fine-tune if needed.';
+            },
+
+            // Address → coordinates (OpenStreetMap Nominatim, no key needed). Auto-runs
+            // while typing; Enter / "Find on map" forces it. Picking a result moves
+            // the pin and the geofence to that spot.
+            async lookup(force = false) {
+                const q = (this.address || '').trim();
+                if (q.length < 4 || (!force && q === this.lastQuery)) return;
+                this.lastQuery = q; this.searching = true;
+                try {
+                    const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&limit=6&countrycodes=ph&q=' + encodeURIComponent(q);
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json', 'Accept-Language': 'en' } });
+                    const data = res.ok ? await res.json() : [];
+                    this.results = data;
+                    if (!data.length) { this.lookupHint = 'No match for that address — try adding the city, or drop the pin by hand.'; return; }
+                    this.lookupHint = data.length + ' match(es) — pick one below, or keep typing.';
+                    if (force || data.length === 1) this.choose(data[0], data.length > 1);
+                } catch (e) {
+                    this.lookupHint = 'Address lookup is unavailable right now — drop the pin by hand.';
+                } finally { this.searching = false; }
+            },
+            choose(r, keepList = false) {
+                this.setPoint({ lat: parseFloat(r.lat), lng: parseFloat(r.lon) });
+                this.map.setView([parseFloat(r.lat), parseFloat(r.lon)], 17);
+                this.lookupHint = 'Pin placed at: ' + r.display_name;
+                if (!keepList) this.results = [];
             },
 
             useMyLocation() {

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Employee;
+use App\Models\Schedule;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -42,7 +43,7 @@ class EmployeeManagementTest extends TestCase
         $this->assertNotNull($user);
         $this->assertSame('brite-juan', $user->username); // generated: company prefix + first name
         $this->assertTrue($user->hasRole('employee'));
-        $this->assertDatabaseHas('employees', ['email' => 'juan@brite-tsi.com', 'employee_type' => 'technical']);
+        $this->assertDatabaseHas('employees', ['email' => 'juan@brite-tsi.com', 'schedule_id' => Schedule::where('is_flexible', false)->value('id')]);
         $this->assertNotNull($user->employee->employee_no);
     }
 
@@ -64,6 +65,22 @@ class EmployeeManagementTest extends TestCase
 
         $this->assertDatabaseHas('users', ['email' => 'juan.one@brite-tsi.com', 'username' => 'brite-juan']);
         $this->assertDatabaseHas('users', ['email' => 'juan.two@brite-tsi.com', 'username' => 'brite-juan2']);
+    }
+
+    public function test_search_matches_full_names_numbers_and_usernames(): void
+    {
+        $hr = User::where('username', 'brite-hr')->firstOrFail();
+        $tech = Employee::where('email', 'tech@brite-tsi.com')->firstOrFail(); // Technical Staff, brite-tech
+        $full = $tech->first_name.' '.$tech->last_name;
+
+        foreach ([$tech->first_name, $tech->last_name, $full, strtolower($full), $tech->last_name.' '.$tech->first_name, $tech->employee_no, 'brite-tech'] as $term) {
+            $this->actingAs($hr)->get('/employees?search='.urlencode($term))->assertOk()->assertSee($full);
+        }
+        // Every word must match: a name that exists + a word that does not.
+        $this->actingAs($hr)->get('/employees?search='.urlencode($tech->first_name.' zzz'))->assertOk()->assertDontSee($full);
+
+        // The Attendance Log uses the same search.
+        $this->actingAs($hr)->get('/attendance/monitor?search='.urlencode($full))->assertOk()->assertSee($full);
     }
 
     public function test_hr_can_choose_a_username_and_it_is_stored_lowercase(): void

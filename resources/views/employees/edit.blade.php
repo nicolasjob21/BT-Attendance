@@ -11,9 +11,9 @@
             @method('PUT')
             @include('employees._form')
 
-            <div class="flex items-center justify-between border-t border-gray-100 dark:border-slate-700 pt-5">
+            <div class="form-footer border-t border-gray-100 dark:border-slate-700 pt-5">
                 <span class="text-xs text-gray-500 dark:text-slate-400">{{ $employee->employee_no }}</span>
-                <div class="flex gap-2">
+                <div class="form-footer-actions">
                     <a href="{{ route('employees.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
                     <button type="submit" class="btn-app btn-md btn-brand">Save changes</button>
                 </div>

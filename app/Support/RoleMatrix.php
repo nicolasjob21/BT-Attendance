@@ -52,20 +52,20 @@ final class RoleMatrix
      * Permissions that must stay on the superadmin role so nobody can lock
      * every administrator out of User Management.
      */
-    public const LOCKED_SUPERADMIN = ['manage users', 'manage roles'];
+    public const LOCKED_SUPERADMIN = ['manage users'];
 
     /**
      * permission => [module, what it unlocks, reserved?]
      * "Reserved" permissions exist so roles can be prepared for them, but no page uses them yet.
      */
     public const PERMISSIONS = [
-        'clock attendance' => ['Self-service', 'Clock In / Out (selfie + GPS), My Attendance, timesheet softcopies, My Checkpoints'],
+        'clock attendance' => ['Self-service', 'Clock In / Out (selfie + GPS, geofence check) · My Attendance and own monthly timesheet · own time in/out softcopies · My Checkpoints — only while assigned to a project site that has a checkpoint they are part of · dashboard clock tile, recent punches and next pay day'],
         'request leave' => ['Self-service', 'Leave page: file leave and early-leave requests'],
         'request overtime' => ['Self-service', 'Overtime page: file OT requests'],
         'view own payslip' => ['Self-service', 'Open own payslip'],
 
-        'approve requests' => ['Approvals', 'Approve / deny leave and OT · verify 13h+ days · approve out-of-geofence punches'],
-        'view team reports' => ['Attendance', "Attendance Log (everyone's time in/out) · any employee's timesheet"],
+        'approve requests' => ['Approvals', 'Approve / deny leave, early-leave and OT requests · verify an unusually long (13h+) day · approve or reject a punch made outside every geofence or without GPS'],
+        'view team reports' => ['Attendance', "Attendance Log — everyone's time in/out by date with search, worked / still clocked in / day off / needs-check counts, overnight shifts shown on the day they started (+1) · any employee's monthly timesheet · anyone's time in/out softcopies"],
 
         'manage employees' => ['Employees', 'Employees list · add / edit · Excel import · activate / deactivate · project-site assignment'],
         'export employees' => ['Employees', 'Download the employee list as Excel'],
@@ -76,10 +76,9 @@ final class RoleMatrix
         'manage settings' => ['Settings', 'Umbrella for every settings page (sites, schedules, rates)'],
         'manage sites' => ['Settings', 'Locations / geofences only'],
         'manage schedules' => ['Settings', 'Work schedules only', true],
-        'manage payroll rates' => ['Settings', 'Payroll Rates page: basic %, allowance %, OT premiums, SSS / PhilHealth / Pag-IBIG brackets, tax % — Super Admin only'],
+        'manage payroll rates' => ['Settings', 'Payroll Rates page (basic %, allowance %, OT premiums, SSS / PhilHealth / Pag-IBIG brackets, tax %) · edit an employee\'s payroll line · release payroll — Super Admin only'],
 
-        'manage users' => ['Users', 'User Management: accounts, passwords, disable / delete / restore, live status'],
-        'manage roles' => ['Users', 'Roles & Permissions page: change what each role can access'],
+        'manage users' => ['Users', 'User Management: accounts, roles, passwords, disable / delete / restore, live status'],
 
         'view audit log' => ['System', 'Every sensitive action with user, time and IP', true],
         'view system health' => ['System', 'Scheduler, queue, storage, failed jobs', true],
@@ -102,7 +101,7 @@ final class RoleMatrix
             'manage employees', 'export employees',
             'run payroll', 'view all payslips',
             'manage settings', 'manage sites', 'manage schedules', 'manage payroll rates',
-            'manage users', 'manage roles',
+            'manage users',
             'view audit log', 'view system health',
             'view checkpoint module', 'create checkpoint campaign', 'activate checkpoint campaign',
             'pause checkpoint campaign', 'end checkpoint campaign', 'view checkpoint results',
@@ -113,7 +112,7 @@ final class RoleMatrix
             'view team reports',
             'manage employees', 'export employees',
             'manage settings', 'manage sites', 'manage schedules',
-            'manage users', 'manage roles',
+            'manage users',
             'view audit log', 'view system health',
             'view checkpoint module', 'create checkpoint campaign',
             'pause checkpoint campaign', 'end checkpoint campaign', 'view checkpoint results',

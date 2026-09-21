@@ -17,7 +17,7 @@
                 <div>
                     <p class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ $employee->full_name }}</p>
                     <p class="mt-0.5 text-sm text-gray-500 dark:text-slate-400">
-                        {{ $employee->employee_no ?? '—' }} · <span class="capitalize">{{ $employee->employee_type }}</span>
+                        {{ $employee->employee_no ?? '—' }}
                         @if($employee->date_hired) · Hired {{ $employee->date_hired->format('M j, Y') }} @endif
                     </p>
                 </div>
@@ -80,7 +80,7 @@
                                 <td data-label="PhilHealth" class="px-4 py-3 text-right text-rose-600">{{ number_format($item->philhealth_deduction, 2) }}</td>
                                 <td data-label="Pag-IBIG" class="px-4 py-3 text-right text-rose-600">{{ number_format($item->pagibig_deduction, 2) }}</td>
                                 <td data-label="Deductions" class="px-4 py-3 text-right text-rose-600">{{ number_format($item->total_deductions, 2) }}</td>
-                                <td data-label="Net pay" class="px-4 py-3 text-right font-semibold text-gray-900 dark:text-slate-100">₱{{ number_format($item->net_pay, 2) }}</td>
+                                <td data-label="Net pay" class="px-4 py-3 text-right font-semibold {{ $item->net_pay < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-gray-900 dark:text-slate-100' }}">{{ \App\Support\Money::peso($item->net_pay) }}</td>
                                 <td data-label="" class="px-4 py-3 text-right">
                                     <a href="{{ route('payroll.show', $item) }}" class="text-sm font-medium text-brand-700 dark:text-brand-300 hover:underline">Payslip</a>
                                 </td>

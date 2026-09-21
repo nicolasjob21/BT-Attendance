@@ -20,19 +20,14 @@
             <form method="GET" action="{{ route('employees.index') }}" class="grid grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
                 <input type="text" name="search" value="{{ $search }}" placeholder="Search name, username, email, or no.…"
                        class="col-span-2 w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto sm:min-w-[200px] sm:flex-1">
-                <select name="type" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
-                    <option value="">All types</option>
-                    <option value="admin" @selected($type === 'admin')>Admin</option>
-                    <option value="technical" @selected($type === 'technical')>Technical</option>
-                </select>
                 <select name="status" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
                     <option value="">All statuses</option>
                     <option value="active" @selected($status === 'active')>Active</option>
                     <option value="inactive" @selected($status === 'inactive')>Inactive</option>
                     <option value="on_leave" @selected($status === 'on_leave')>On leave</option>
                 </select>
-                <button class="col-span-2 w-full btn-app btn-md btn-dark sm:w-auto">Filter</button>
-                @if($search || $type || $status)
+                <button class="w-full btn-app btn-md btn-dark sm:w-auto">Filter</button>
+                @if($search || $status)
                     <a href="{{ route('employees.index') }}" class="col-span-2 text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>
                 @endif
             </form>
@@ -42,11 +37,18 @@
                     <a href="{{ route('employees.export') }}" class="btn-app btn-md btn-secondary">Export Excel</a>
                 @endcan
                 <a href="{{ route('employees.import') }}" class="btn-app btn-md btn-secondary">Import Excel</a>
-                <a href="{{ route('employees.create') }}" class="btn-app btn-md btn-brand">+ Add Employee</a>
+                <a href="{{ route('employees.create') }}" class="btn-app btn-md btn-brand col-span-2 sm:col-auto">+ Add Employee</a>
             </div>
         </div>
 
-        <p class="text-xs text-gray-500 dark:text-slate-400">{{ $employees->total() }} employee(s)</p>
+        <div class="stat-strip">
+            <x-stat label="Active employees" :value="$stats['active']" :hint="$stats['on_project'].' deployed to a project site'" tone="brand" />
+            <x-stat label="Office / unassigned" :value="$stats['active'] - $stats['on_project']" hint="clock in at the head office" />
+            <x-stat label="Inactive" :value="$stats['inactive']" :hint="$stats['inactive'] ? 'kept for history' : 'none'" :tone="$stats['inactive'] ? 'warn' : 'muted'" />
+            <x-stat label="Monthly payroll" :value="'₱'.number_format($stats['payroll'], 0)" hint="sum of active monthly salaries" tone="success" />
+        </div>
+
+        <p class="text-xs text-gray-500 dark:text-slate-400">{{ $employees->total() }} employee(s){{ ($search || $status) ? ' match your filters' : '' }}</p>
 
         <div class="overflow-hidden card">
             <div class="overflow-x-auto">
@@ -55,9 +57,7 @@
                         <tr>
                             <th class="px-4 py-3">Employee</th>
                             <th class="px-4 py-3">No.</th>
-                            <th class="px-4 py-3">Type</th>
                             <th class="px-4 py-3">Role</th>
-                            <th class="px-4 py-3">Schedule</th>
                             <th class="px-4 py-3">Project site</th>
                             <th class="px-4 py-3 text-right">Monthly salary</th>
                             <th class="px-4 py-3">Status</th>
@@ -72,13 +72,7 @@
                                     <div class="text-gray-500 dark:text-slate-400">{{ $emp->user?->username ?? $emp->email }}</div>
                                 </td>
                                 <td data-label="No." class="px-4 py-3 text-gray-500 dark:text-slate-400 whitespace-nowrap">{{ $emp->employee_no }}</td>
-                                <td data-label="Type" class="px-4 py-3">
-                                    <span class="badge {{ $emp->employee_type === 'technical' ? 'badge-info' : 'badge-neutral' }}">
-                                        {{ $emp->employee_type }}
-                                    </span>
-                                </td>
                                 <td data-label="Role" class="px-4 py-3 text-gray-600 dark:text-slate-300">{{ \App\Support\RoleMatrix::ROLE_LABELS[$emp->user?->getRoleNames()->first()] ?? ($emp->user?->getRoleNames()->first() ?? '—') }}</td>
-                                <td data-label="Schedule" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ $emp->schedule?->name ?? '—' }}</td>
                                 <td data-label="Project site" class="px-4 py-3 text-gray-700 dark:text-slate-200">
                                     @if($emp->activeAssignment?->site)
                                         {{ $emp->activeAssignment->site->name }}
@@ -103,7 +97,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="9" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No employees match your filters.</td></tr>
+                            <tr><td colspan="7" class="p-0"><x-empty-state icon="users" :title="($search || $status) ? 'No employees match your filters' : 'No employees yet'" :hint="($search || $status) ? 'Try a different name, username or status.' : 'Add your first employee — this also creates their login account.'" :href="($search || $status) ? route('employees.index') : route('employees.create')" :action="($search || $status) ? 'Clear filters' : 'Add employee'" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

@@ -204,7 +204,7 @@
 
     /* ---- Row actions: compact buttons in table rows, same language ----
        <div class="row-actions"><a>Timesheet</a><a class="is-primary">Edit</a></div> */
-    .row-actions { @apply inline-flex flex-nowrap items-center justify-end gap-1.5; }
+    .row-actions { @apply flex flex-nowrap items-center justify-end gap-1.5; }
     .row-actions a,
     .row-actions button {
         @apply relative inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-none border px-2.5
@@ -249,7 +249,20 @@
     /* ---- Page containers ----
        Wide lists / tables get up to 1400px on large monitors; forms stay narrower. */
     .page      { @apply mx-auto w-full max-w-7xl 2xl:max-w-[1400px]; }
-    .page-form { @apply mx-auto w-full max-w-4xl; }
+    .page-form { @apply mx-auto w-full max-w-5xl; }
+    /* Wide form: fields on the left, a sticky context panel (map, summary, tips) on the right. */
+    .form-split { @apply grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]; }
+    /* Grid/flex children default to min-width:auto, which lets an input's
+       intrinsic width push a phone-width form wider than the screen. */
+    .form-split > *, .form-split input, .form-split select { min-width: 0; }
+    .form-aside { @apply lg:sticky lg:top-24 lg:self-start; }
+    /* Form footer: note on the left, buttons on the right; on phones the note
+       sits above and the buttons share one full-width row. */
+    .form-footer { @apply flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between; }
+    .form-footer-actions { @apply grid grid-cols-[auto_minmax(0,1fr)] gap-2 sm:ml-auto sm:flex; }
+    .form-footer-actions > * { @apply w-full sm:w-auto; }
+    /* Summary tiles above a table. */
+    .stat-strip { @apply grid grid-cols-2 gap-3 sm:grid-cols-4; }
 
     /* Dashboard greeting banner — two clearly different moods.
        Light: a daylight wash (pale cyan → white → peach) with dark ink text and
@@ -319,6 +332,8 @@
         padding-top: 0.75rem;
     }
     table.table-stack td.cell-head::before { content: none; }
+    /* A cell with nothing to say (an absent day's Time In) stays out of the stack */
+    table.table-stack td.stack-skip { display: none; }
     table.table-stack td:last-child { padding-bottom: 0.75rem; }
     /* The empty-state row spans normally */
     table.table-stack td[colspan] { display: table-cell; text-align: center; }
@@ -361,4 +376,11 @@
 }
 @media (max-width: 1023.98px) {
     .app-sidebar { transition: transform 200ms ease; }
+}
+
+/* Printing a payslip: hide the app chrome, keep the sheet. */
+@media print {
+    .app-sidebar, header, .app-main > a[aria-label^="Back"], .print\:hidden { display: none !important; }
+    .app-main { padding: 0 !important; }
+    body { background: #fff !important; }
 }

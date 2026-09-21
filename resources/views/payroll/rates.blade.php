@@ -25,14 +25,14 @@
             @csrf @method('PUT')
 
             {{-- EARNINGS --}}
-            <section class="card p-5">
+            <section class="card min-w-0 p-5">
                 <div class="flex items-center justify-between">
                     <h2 class="font-display text-base font-bold text-emerald-600 dark:text-emerald-400">Earnings</h2>
                     <span class="badge badge-success">% of salary / rate</span>
                 </div>
                 <div class="mt-4 grid gap-3">
                     @foreach(['basic_cutoff_percent' => ['%', 'of the monthly salary paid each cutoff (50 = semi-monthly)'], 'allowance_percent' => ['%', 'of basic pay added to everyone as allowance (0 = none)'], 'ot_regular_percent' => ['%', 'of the hourly rate per approved OT hour'], 'ot_rest_day_percent' => ['%', 'of the hourly rate on rest days'], 'ot_holiday_percent' => ['%', 'of the hourly rate on regular holidays']] as $k => [$unit, $hint])
-                        <div class="grid grid-cols-[1fr_150px] items-center gap-3">
+                        <div class="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                             <div>
                                 <label for="{{ $k }}" class="text-sm font-medium text-gray-800 dark:text-slate-100">{{ $labels[$k] }}</label>
                                 <p class="text-xs text-gray-500 dark:text-slate-400">{{ $hint }}</p>
@@ -63,7 +63,7 @@
             </section>
 
             {{-- DEDUCTIONS --}}
-            <section class="card p-5">
+            <section class="card min-w-0 p-5">
                 <div class="flex items-center justify-between">
                     <h2 class="font-display text-base font-bold text-accent-600 dark:text-accent-400">Deductions</h2>
                     <span class="badge badge-danger">% of salary</span>
@@ -113,7 +113,7 @@
             </section>
 
             {{-- PREVIEW --}}
-            <section class="card p-5 lg:col-span-2">
+            <section class="card min-w-0 p-5 lg:col-span-2">
                 <div class="flex flex-wrap items-end justify-between gap-3">
                     <div>
                         <h2 class="font-display text-base font-bold text-gray-900 dark:text-slate-100">What these rates mean for one cutoff</h2>
@@ -153,11 +153,11 @@
                         </ul>
                     </div>
                 </div>
-                <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-slate-700">
+                <div class="form-footer mt-4 border-t border-gray-100 pt-4 dark:border-slate-700">
                     <p class="text-sm text-gray-700 dark:text-slate-200">Net pay per cutoff: <b class="font-display text-xl tabular-nums text-brand-700 dark:text-brand-300" x-text="peso(p.net)"></b> <span class="text-gray-500 dark:text-slate-400">(<b x-text="pct(p.net, p.gross).toFixed(1) + '%'"></b> of gross)</span></p>
-                    <div class="flex gap-2">
+                    <div class="form-footer-actions">
                         <a href="{{ route('payroll.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
-                        <button class="btn-app btn-md btn-brand">Save rates for everyone</button>
+                        <button class="btn-app btn-md btn-brand"><span class="sm:hidden">Save rates</span><span class="hidden sm:inline">Save rates for everyone</span></button>
                     </div>
                 </div>
             </section>

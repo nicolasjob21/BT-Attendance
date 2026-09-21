@@ -5,7 +5,7 @@
     <x-slot name="back">{{ route('sites.index') }}</x-slot>
     <x-slot name="backLabel">Back to Locations</x-slot>
 
-    <div class="page-form space-y-4">
+    <div class="page space-y-4">
         @if($site->attendance_logs_count)
             <div class="rounded-xs border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/30 dark:text-amber-200">
                 {{ number_format($site->attendance_logs_count) }} attendance punch(es) reference this location. Editing the centre or radius only affects <strong>future</strong> punches — past records keep the distance and verdict computed at the time.

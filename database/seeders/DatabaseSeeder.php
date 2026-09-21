@@ -31,22 +31,14 @@ class DatabaseSeeder extends Seeder
     private function seedSchedules(): array
     {
         $admin = Schedule::create([
-            'name' => 'Admin (8:30 AM – 5:30 PM)',
+            'name' => 'Office (8:30 AM – 5:30 PM)',
             'time_in' => '08:30:00',
             'time_out' => '17:30:00',
             'grace_minutes' => 15,
             'is_flexible' => false,
         ]);
 
-        $flexible = Schedule::create([
-            'name' => 'Technical (Flexible)',
-            'time_in' => null,
-            'time_out' => null,
-            'grace_minutes' => 0,
-            'is_flexible' => true,
-        ]);
-
-        return ['admin' => $admin, 'flexible' => $flexible];
+        return ['admin' => $admin];
     }
 
     private function seedSites(): void
@@ -144,7 +136,7 @@ class DatabaseSeeder extends Seeder
             ['CEO / Super Admin', 'brite-admin', 'admin@brite-tsi.com', 'superadmin', 'admin', 'admin', 80000],
             ['Developer', 'brite-dev', 'dev@brite-tsi.com', 'developer', 'admin', 'admin', 40000],
             ['HR Officer', 'brite-hr', 'hr@brite-tsi.com', 'admin', 'admin', 'admin', 35000],
-            ['Technical Staff', 'brite-tech', 'tech@brite-tsi.com', 'employee', 'technical', 'flexible', 25000],
+            ['Technical Staff', 'brite-tech', 'tech@brite-tsi.com', 'employee', 'admin', 'admin', 25000],
         ];
 
         $n = 1;

@@ -26,18 +26,11 @@
         @endif
 
         {{-- Summary --}}
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            @foreach([
-                ['label' => 'Accounts', 'value' => $counts['total'], 'href' => route('users.index'), 'tone' => 'text-gray-900 dark:text-slate-100'],
-                ['label' => 'Online now', 'value' => $counts['online'], 'href' => route('users.index', ['status' => 'online']), 'tone' => 'text-emerald-600 dark:text-emerald-300'],
-                ['label' => 'Disabled', 'value' => $counts['disabled'], 'href' => route('users.index', ['status' => 'disabled']), 'tone' => 'text-rose-600 dark:text-rose-300'],
-                ['label' => 'Deleted', 'value' => $counts['deleted'], 'href' => route('users.index', ['status' => 'deleted']), 'tone' => 'text-gray-500 dark:text-slate-400'],
-            ] as $tile)
-                <a href="{{ $tile['href'] }}" class="card p-4 hover:border-brand-400 dark:hover:border-brand-500/60">
-                    <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">{{ $tile['label'] }}</p>
-                    <p class="mt-1 text-2xl font-semibold tabular-nums {{ $tile['tone'] }}">{{ $tile['value'] }}</p>
-                </a>
-            @endforeach
+        <div class="stat-strip">
+            <x-stat label="Accounts" :value="$counts['total']" :href="route('users.index')" hint="all roles" />
+            <x-stat label="Online now" :value="$counts['online']" :href="route('users.index', ['status' => 'online'])" hint="active in the last 5 minutes" tone="success" />
+            <x-stat label="Disabled" :value="$counts['disabled']" :href="route('users.index', ['status' => 'disabled'])" hint="blocked from signing in" :tone="$counts['disabled'] ? 'danger' : 'muted'" />
+            <x-stat label="Deleted" :value="$counts['deleted']" :href="route('users.index', ['status' => 'deleted'])" hint="restorable" tone="muted" />
         </div>
 
         {{-- Toolbar --}}
@@ -65,11 +58,8 @@
             </form>
 
             <div class="grid grid-cols-2 gap-2 sm:flex">
-                @can('manage roles')
-                    <a href="{{ route('roles.index') }}" class="btn-app btn-md btn-secondary">Roles &amp; Permissions</a>
-                @endcan
                 @can('manage employees')
-                    <a href="{{ route('employees.create') }}" class="btn-app btn-md btn-brand">+ Add Employee</a>
+                    <a href="{{ route('employees.create') }}" class="btn-app btn-md btn-brand col-span-2 sm:col-auto">+ Add Employee</a>
                 @endcan
             </div>
         </div>
@@ -158,7 +148,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No accounts match your filters.</td></tr>
+                            <tr><td colspan="7" class="p-0"><x-empty-state icon="users" title="No accounts match your filters" :href="route('users.index')" action="Clear filters" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

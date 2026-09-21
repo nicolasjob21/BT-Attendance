@@ -72,7 +72,7 @@ class SmokeTest extends TestCase
         $this->login('admin@brite-tsi.com');
 
         // Superadmin is management-only: no Clock In / Out, but the approval queues (leave, OT) still open.
-        foreach (['/dashboard', '/employees', '/payroll', '/leave', '/overtime', '/users', '/users/roles'] as $url) {
+        foreach (['/dashboard', '/employees', '/payroll', '/leave', '/overtime', '/users'] as $url) {
             $this->get($url)->assertOk();
         }
         $this->get('/attendance')->assertForbidden();

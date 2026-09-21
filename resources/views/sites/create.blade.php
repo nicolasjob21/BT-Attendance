@@ -5,7 +5,7 @@
     <x-slot name="back">{{ route('sites.index') }}</x-slot>
     <x-slot name="backLabel">Back to Locations</x-slot>
 
-    <div class="page-form">
+    <div class="page">
         <form method="POST" action="{{ route('sites.store') }}" class="space-y-6 card p-6">
             @csrf
             @include('sites._form')

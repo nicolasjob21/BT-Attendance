@@ -14,9 +14,9 @@
     <div class="page-form space-y-4"
          x-data="{ v: @js($vals), num(k) { return parseFloat(this.v[k]) || 0 },
                    get gross() { return {{ collect(array_keys($earn))->map(fn ($k) => "this.num('$k')")->implode(' + ') }} },
-                   get ded() { return {{ collect(array_keys($ded))->map(fn ($k) => "this.num('$k')")->implode(' + ') }} },
+                   get ded() { return {{ collect(array_keys($ded))->map(fn ($k) => "this.num('$k')")->implode(' + ') }} + {{ (float) $item->loan_deduction + (float) $item->missing_item_deduction }} },
                    get net() { return this.gross - this.ded },
-                   peso(n) { return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) } }">
+                   peso(n) { return (n < 0 ? '−' : '') + '₱' + Math.abs(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) } }">
 
         <div class="card p-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -29,7 +29,7 @@
                 </div>
                 <div class="text-right">
                     <p class="eyebrow text-[10px]">Net pay</p>
-                    <p class="font-display text-3xl font-bold tabular-nums text-brand-700 dark:text-brand-300" x-text="peso(net)">₱{{ number_format($item->net_pay, 2) }}</p>
+                    <p class="font-display text-3xl font-bold tabular-nums text-brand-700 dark:text-brand-300" x-text="peso(net)">{{ \App\Support\Money::peso($item->net_pay) }}</p>
                 </div>
             </div>
         </div>
@@ -72,6 +72,17 @@
                             @error($k) <p class="col-span-2 text-xs text-rose-600">{{ $message }}</p> @enderror
                         </div>
                     @endforeach
+                    @if((float) $item->loan_deduction > 0 || (float) $item->missing_item_deduction > 0)
+                        <div class="mt-1 border-t border-gray-100 pt-3 text-sm dark:border-slate-700">
+                            @foreach($item->deductionPayments as $pay)
+                                <div class="grid grid-cols-[1fr_160px] items-center gap-3 py-0.5">
+                                    <span class="text-gray-700 dark:text-slate-200">{{ $pay->deduction?->typeLabel() }} <span class="text-xs text-gray-400 dark:text-slate-500">· {{ $pay->deduction?->description }}</span></span>
+                                    <span class="text-right tabular-nums text-gray-900 dark:text-slate-100">{{ number_format($pay->amount, 2) }}</span>
+                                </div>
+                            @endforeach
+                            <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Installments are set on <a href="{{ route('payroll.deductions') }}" class="font-medium text-brand-700 hover:underline dark:text-brand-300">Loans &amp; Missing Items</a>, not here.</p>
+                        </div>
+                    @endif
                 </div>
             </section>
 
@@ -81,9 +92,9 @@
                        class="mt-1 w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600" placeholder="e.g. Site allowance for Sept · approved by CEO">
                 @error('remarks') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
 
-                <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4 dark:border-slate-700">
-                    <p class="text-xs text-gray-500 dark:text-slate-400">Gross, total deductions and net are recomputed from these fields on save. An adjusted line is skipped by automation and Recalculate.</p>
-                    <div class="flex gap-2">
+                <div class="form-footer mt-5 border-t border-gray-100 pt-4 dark:border-slate-700">
+                    <p class="text-xs text-gray-500 dark:text-slate-400 sm:max-w-md">Gross, total deductions and net are recomputed from these fields on save. An adjusted line is kept as-is by Recalculate.</p>
+                    <div class="form-footer-actions">
                         <a href="{{ route('payroll.index', ['period' => $period->id]) }}" class="btn-app btn-md btn-secondary">Cancel</a>
                         @unless($period->isClosed())
                             <button class="btn-app btn-md btn-brand">Save line</button>

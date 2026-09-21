@@ -163,36 +163,12 @@ class UserManagementTest extends TestCase
         $this->actingAs($hr)->get('/dashboard')->assertOk()->assertSee('Clock In / Out');
     }
 
-    public function test_roles_page_edits_permissions_and_keeps_superadmin_lock(): void
-    {
-        $admin = $this->admin();
-        $this->actingAs($this->hr())->get('/users/roles')->assertForbidden();
-        $this->actingAs($admin)->get('/users/roles')->assertOk()->assertSee('manage checkpoint settings');
-
-        // Give employees "view team reports", take everything from superadmin except the lock.
-        $this->actingAs($admin)->put('/users/roles', ['grants' => [
-            'employee' => ['clock attendance' => '1', 'view team reports' => '1'],
-            'superadmin' => [],
-            'admin' => ['clock attendance' => '1'],
-            'developer' => ['manage users' => '1'],
-        ]])->assertRedirect(route('roles.index'));
-
-        $this->assertTrue(Role::findByName('employee')->hasPermissionTo('view team reports'));
-        $super = Role::findByName('superadmin');
-        $this->assertTrue($super->hasPermissionTo('manage users'));
-        $this->assertTrue($super->hasPermissionTo('manage roles'));
-        $this->assertFalse($super->hasPermissionTo('run payroll'));
-
-        $this->actingAs($admin)->post('/users/roles/reset')->assertRedirect(route('roles.index'));
-        $this->assertTrue(Role::findByName('superadmin')->fresh()->hasPermissionTo('run payroll'));
-    }
-
     public function test_add_employee_creates_employee_accounts_only(): void
     {
         $admin = $this->admin();
         $html = $this->actingAs($admin)->get('/employees/create')->assertOk()->getContent();
         $this->assertStringNotContainsString('<select id="role"', $html);
-        $this->assertStringContainsString('New employees always get the Employee role', $html);
+        $this->assertStringNotContainsString('Account role', $html);
 
         // Even a superadmin posting "developer" from the employee form gets an employee account.
         $this->actingAs($admin)->post('/employees', [

@@ -1,6 +1,6 @@
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900 dark:text-slate-100">
+        <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">
             {{ __('Profile Information') }}
         </h2>
 
@@ -34,7 +34,7 @@
                 </span>
 
                 <div class="space-y-1.5">
-                    <label class="inline-block cursor-pointer rounded-xs bg-gray-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700">
+                    <label class="btn-app btn-sm btn-secondary cursor-pointer">
                         {{ __('Choose photo') }}
                         <input type="file" name="photo" accept="image/png,image/jpeg,image/webp" class="hidden"
                                @change="remove = false; const f = $event.target.files[0]; if (f) preview = URL.createObjectURL(f);">
@@ -56,20 +56,21 @@
 
         <div>
             <x-input-label for="name" :value="__('Name')" />
-            <x-text-input id="name" name="name" type="text" class="mt-1 block w-full" :value="old('name', $user->name)" required autofocus autocomplete="name" />
+            <x-text-input id="name" name="name" type="text" class="mt-1" :value="old('name', $user->name)" required autofocus autocomplete="name" />
             <x-input-error class="mt-2" :messages="$errors->get('name')" />
         </div>
 
+        <div class="grid gap-6 sm:grid-cols-2">
         <div>
             <x-input-label for="username" :value="__('Username')" />
-            <x-text-input id="username" name="username" type="text" class="mt-1 block w-full" :value="old('username', $user->username)" required autocomplete="username" autocapitalize="none" spellcheck="false" />
+            <x-text-input id="username" name="username" type="text" class="mt-1" :value="old('username', $user->username)" required autocomplete="username" autocapitalize="none" spellcheck="false" />
             <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">{{ __('Used to sign in. Company prefix + first name, e.g. brite-juan.') }}</p>
             <x-input-error class="mt-2" :messages="$errors->get('username')" />
         </div>
 
         <div>
             <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user->email)" required autocomplete="email" />
+            <x-text-input id="email" name="email" type="email" class="mt-1" :value="old('email', $user->email)" required autocomplete="email" />
             <x-input-error class="mt-2" :messages="$errors->get('email')" />
 
             @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
@@ -89,6 +90,7 @@
                     @endif
                 </div>
             @endif
+        </div>
         </div>
 
         <div class="flex items-center gap-4">

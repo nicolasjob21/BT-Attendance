@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PayrollItem extends Model
@@ -28,6 +29,8 @@ class PayrollItem extends Model
             'net_pay' => 'decimal:2',
             'allowances' => 'decimal:2',
             'other_deductions' => 'decimal:2',
+            'loan_deduction' => 'decimal:2',
+            'missing_item_deduction' => 'decimal:2',
             'half_day_deduction' => 'decimal:2',
             'adjusted_at' => 'datetime',
         ];
@@ -51,7 +54,8 @@ class PayrollItem extends Model
     {
         $this->gross_pay = round((float) $this->basic_pay + (float) $this->overtime_pay + (float) $this->night_diff_pay + (float) $this->holiday_pay + (float) $this->allowances, 2);
         $this->total_deductions = round((float) $this->late_undertime_deduction + (float) $this->absences_deduction + (float) $this->half_day_deduction
-            + (float) $this->sss_deduction + (float) $this->philhealth_deduction + (float) $this->pagibig_deduction + (float) $this->withholding_tax + (float) $this->other_deductions, 2);
+            + (float) $this->sss_deduction + (float) $this->philhealth_deduction + (float) $this->pagibig_deduction + (float) $this->withholding_tax + (float) $this->other_deductions
+            + (float) $this->loan_deduction + (float) $this->missing_item_deduction, 2);
         $this->net_pay = round($this->gross_pay - $this->total_deductions, 2);
 
         return $this;
@@ -75,5 +79,11 @@ class PayrollItem extends Model
     public function payslip(): HasOne
     {
         return $this->hasOne(Payslip::class);
+    }
+
+    /** Loan / missing-item installments taken on this line. */
+    public function deductionPayments(): HasMany
+    {
+        return $this->hasMany(PayrollDeductionPayment::class)->with('deduction.site:id,name');
     }
 }

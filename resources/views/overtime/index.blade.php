@@ -17,6 +17,13 @@
             <a href="{{ route('overtime.create') }}" class="btn-app btn-md btn-brand">Request Overtime</a>
         </div>
 
+        <div class="stat-strip">
+            <x-stat :label="$canApprove ? 'Awaiting approval' : 'Pending'" :value="$stats['pending']" :hint="$stats['pending'] ? 'needs a decision' : 'nothing waiting'" :tone="$stats['pending'] ? 'warn' : 'success'" />
+            <x-stat label="Approved this month" :value="$stats['approved_month']" :hint="now()->format('F')" tone="brand" />
+            <x-stat label="OT hours this month" :value="rtrim(rtrim(number_format($stats['hours_month'], 2), '0'), '.') ?: '0'" hint="actual hours from clock-outs" />
+            <x-stat label="Denied this year" :value="$stats['denied_year']" :tone="$stats['denied_year'] ? 'danger' : 'muted'" />
+        </div>
+
         <div class="overflow-hidden card">
             <div class="overflow-x-auto">
                 <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
@@ -102,7 +109,7 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="{{ $canApprove ? 6 : 4 }}" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No overtime requests yet.</td></tr>
+                            <tr><td colspan="{{ $canApprove ? 6 : 4 }}" class="p-0"><x-empty-state icon="clock" title="No overtime requests yet" :hint="$canApprove ? 'Requests employees file will show up here for approval.' : 'Overtime is paid only when approved in advance — file a request before staying late.'" :href="route('overtime.create')" action="Request overtime" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

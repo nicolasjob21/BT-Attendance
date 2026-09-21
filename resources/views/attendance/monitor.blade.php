@@ -53,17 +53,21 @@
                 @endif
             </form>
 
-            {{-- Summary --}}
-            <div class="flex items-center gap-2 text-xs">
-                <span class="badge badge-success">{{ $present }} {{ $isRestDay ? 'worked' : 'present' }}</span>
-                <span class="badge badge-neutral">{{ $absent }} {{ $isRestDay ? 'day off' : 'absent' }}</span>
-            </div>
+        </div>
+
+        {{-- Summary for the day --}}
+        <div class="stat-strip">
+            <x-stat :label="$isRestDay ? 'Worked today' : 'Present'" :value="$present" :hint="'of '.$rows->count().' employee(s)'" tone="success" />
+            <x-stat :label="$isRestDay ? 'Day off' : 'Absent'" :value="$absent" :hint="$isRestDay ? 'rest day — no punch expected' : 'no time in yet'" :tone="$isRestDay ? 'muted' : ($absent ? 'danger' : 'success')" />
+            <x-stat label="Still clocked in" :value="$stillIn" :hint="$stillIn ? 'no time out recorded' : 'everyone is out'" :tone="$stillIn ? 'brand' : 'muted'" />
+            <x-stat label="Needs your check" :value="$needsCheck" :hint="$needsCheck ? 'long day or location exception' : 'nothing flagged'" :tone="$needsCheck ? 'warn' : 'muted'" />
         </div>
 
         <p class="text-xs text-gray-500 dark:text-slate-400">
-            Showing {{ $day->isToday() ? 'today' : $day->format('l, F j, Y') }} · {{ $rows->count() }} employee(s)
+            Showing {{ $day->isToday() ? 'today' : $day->format('l, F j, Y') }}
+            @if($otMinutes) · {{ sprintf('%d:%02d', intdiv($otMinutes, 60), $otMinutes % 60) }} h overtime @endif
             @if($isRestDay)
-                <span class="badge badge-danger ml-1">Rest day — day off; anyone on site is on rest-day OT (130%)</span>
+                <span class="badge badge-danger ml-1">Rest day — anyone on site is on rest-day OT (130%)</span>
             @endif
         </p>
 
@@ -98,7 +102,7 @@
                                 </td>
 
                                 @foreach(['Time In' => $in, 'Time Out' => $out] as $label => $log)
-                                    <td data-label="{{ $label }}" class="px-4 py-3">
+                                    <td data-label="{{ $label }}" class="px-4 py-3 {{ $log ? '' : 'stack-skip' }}">
                                         @if($log)
                                             <div class="flex items-center justify-end gap-2 sm:justify-start">
                                                 @if($log->photo_path)
@@ -107,7 +111,7 @@
                                                          class="h-8 w-8 shrink-0 cursor-zoom-in rounded-full object-cover transition hover:opacity-80 hover:ring-2 hover:ring-brand-500">
                                                 @endif
                                                 <div class="text-right sm:text-left">
-                                                    <div class="font-medium text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}</div>
+                                                    <div class="font-medium text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}<x-next-day :from="$day" :to="$log->logged_at" /></div>
                                                     <div class="text-xs text-gray-500 dark:text-slate-400">
                                                         @if($log->site){{ $log->site->name }}@endif
                                                         @if($log->latitude && $log->longitude)
@@ -126,7 +130,7 @@
                                     </td>
                                 @endforeach
 
-                                <td data-label="Hours" class="px-4 py-3 tabular-nums text-gray-700 dark:text-slate-200">
+                                <td data-label="Hours" class="px-4 py-3 tabular-nums text-gray-700 dark:text-slate-200 {{ $hours ? '' : 'stack-skip' }}">
                                     @if($hours)
                                         <div class="font-medium">{{ $hours }}</div>
                                         @if($otMins > 0)
@@ -268,7 +272,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No employees match your search.</td></tr>
+                            <tr><td colspan="5" class="p-0"><x-empty-state icon="users" title="No employees match your search" :href="$link($date)" action="Clear search" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

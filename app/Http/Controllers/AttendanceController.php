@@ -174,7 +174,30 @@ class AttendanceController extends Controller
             ->latest('logged_at')
             ->paginate(20);
 
-        return view('attendance.index', compact('logs'));
+        // This month at a glance: days worked, hours, late arrivals, last punch.
+        $monthLogs = $employee->attendanceLogs()
+            ->whereBetween('logged_at', [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()])
+            ->orderBy('logged_at')->get();
+        $sessions = WorkSessions::pair($monthLogs);
+        $schedule = $employee->schedule;
+        $late = 0;
+        if ($schedule) {
+            foreach (collect($sessions)->groupBy(fn ($s) => $s['in']->logged_at->toDateString()) as $day) {
+                $first = $day->first()['in']->logged_at;
+                $expected = $first->copy()->setTimeFromTimeString($schedule->time_in)->addMinutes((int) $schedule->grace_minutes);
+                if ($first->gt($expected)) {
+                    $late++;
+                }
+            }
+        }
+        $month = [
+            'days' => collect($sessions)->map(fn ($s) => $s['in']->logged_at->toDateString())->unique()->count(),
+            'minutes' => WorkSessions::workedMinutes($sessions),
+            'late' => $late,
+            'last' => $employee->attendanceLogs()->latest('logged_at')->first(),
+        ];
+
+        return view('attendance.index', compact('logs', 'month'));
     }
 
     /** HR/supervisor monitor: every active employee's time in/out for a chosen date. */
@@ -192,12 +215,7 @@ class AttendanceController extends Controller
 
         $employees = Employee::query()
             ->where('status', 'active')
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(fn ($w) => $w
-                    ->where('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('employee_no', 'like', "%{$search}%"));
-            })
+            ->when($search !== '', fn ($q) => $q->search($search))
             ->orderBy('first_name')->orderBy('last_name')
             ->get();
 
@@ -271,6 +289,9 @@ class AttendanceController extends Controller
             'search' => $search,
             'present' => $present,
             'absent' => $rows->count() - $present,
+            'stillIn' => $rows->filter(fn ($r) => $r['open'])->count(),
+            'otMinutes' => (int) $rows->sum('ot_minutes'),
+            'needsCheck' => $rows->filter(fn ($r) => $r['needs_verification'] || $r['location_exceptions']->isNotEmpty())->count(),
             'isRestDay' => $isRestDay,
         ]);
     }

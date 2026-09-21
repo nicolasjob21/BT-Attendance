@@ -5,7 +5,7 @@
     <x-slot name="back">{{ route('overtime.index') }}</x-slot>
     <x-slot name="backLabel">Back to Overtime</x-slot>
 
-    <div class="mx-auto max-w-xl" x-data="otForm()">
+    <div class="page-form form-split" x-data="otForm()">
         <form method="POST" action="{{ route('overtime.store') }}" class="space-y-5 card p-6">
             @csrf
 
@@ -65,6 +65,13 @@
                         class="btn-app btn-md btn-brand disabled:cursor-not-allowed">Send for approval</button>
             </div>
         </form>
+
+        <x-form-aside title="How overtime is paid" :facts="$facts">
+            <li>Overtime counts <b class="text-gray-800 dark:text-slate-100">only when approved</b> — file before you stay late; HR can still approve up to a few days after.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Weekday</b>: hours after 5:30 PM at 125% of your hourly rate.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Saturday / Sunday</b>: a rest-day shift — every hour worked is overtime at 130%.</li>
+            <li>The actual hours come from your clock-out, capped at what you requested — so clock out when you finish.</li>
+        </x-form-aside>
     </div>
 
     <script>

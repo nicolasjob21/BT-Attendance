@@ -25,7 +25,7 @@
                     @if($employee->assignedSite()) · assigned to {{ $employee->assignedSite()->name }} @endif
                 </p>
             </div>
-            <form method="GET" action="{{ route('attendance.timesheet', $employee) }}" class="flex items-center gap-2">
+            <form method="GET" action="{{ route('attendance.timesheet', $employee) }}" class="flex flex-wrap items-center gap-2">
                 <div class="inline-flex items-center overflow-hidden rounded-xs border border-gray-300 dark:border-slate-600">
                     <a href="{{ $link($prev) }}" aria-label="Previous month" class="px-2 py-2 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700">
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
@@ -38,7 +38,7 @@
                 </div>
                 <a href="{{ $link(now()->format('Y-m')) }}" class="btn-app btn-md btn-secondary">This month</a>
                 @if($canReview)
-                    <a href="{{ route('attendance.monitor', ['date' => $month->isSameMonth(now()) ? now()->toDateString() : $month->toDateString()]) }}" class="text-sm text-brand-600 hover:underline dark:text-brand-300">Daily log</a>
+                    <a href="{{ route('attendance.monitor', ['date' => $month->isSameMonth(now()) ? now()->toDateString() : $month->toDateString()]) }}" class="whitespace-nowrap text-sm text-brand-600 hover:underline dark:text-brand-300">Daily log</a>
                 @endif
             </form>
         </div>
@@ -91,7 +91,7 @@
                                 </td>
 
                                 @foreach(['Time In' => $day['in'], 'Time Out' => $day['out']] as $label => $log)
-                                    <td data-label="{{ $label }}" class="px-4 py-2.5 whitespace-nowrap">
+                                    <td data-label="{{ $label }}" class="px-4 py-2.5 whitespace-nowrap {{ ! $log && ! ($day['status'] === 'open' && $label === 'Time Out') ? 'stack-skip' : '' }}">
                                         @if($log)
                                             <div class="flex items-center justify-end gap-2 sm:justify-start">
                                                 @if($log->photo_path)
@@ -99,10 +99,7 @@
                                                          @click="$dispatch('open-lightbox', '{{ Storage::url($log->photo_path) }}')"
                                                          class="h-7 w-7 shrink-0 cursor-zoom-in rounded-full object-cover hover:ring-2 hover:ring-brand-500">
                                                 @endif
-                                                <span class="tabular-nums text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}</span>
-                                                @if($label === 'Time Out' && ! $log->logged_at->isSameDay($day['date']))
-                                                    <span class="text-[10px] text-gray-400 dark:text-slate-500">+1d</span>
-                                                @endif
+                                                <span class="tabular-nums text-gray-900 dark:text-slate-100">{{ $log->logged_at->format('g:i A') }}<x-next-day :from="$day['date']" :to="$log->logged_at" /></span>
                                             </div>
                                         @elseif($day['status'] === 'open' && $label === 'Time Out')
                                             <span class="text-xs text-amber-600 dark:text-amber-300">still clocked in</span>
@@ -112,7 +109,7 @@
                                     </td>
                                 @endforeach
 
-                                <td data-label="Hours" class="px-4 py-2.5 tabular-nums">
+                                <td data-label="Hours" class="px-4 py-2.5 tabular-nums {{ $day['minutes'] > 0 ? '' : 'stack-skip' }}">
                                     @if($day['minutes'] > 0)
                                         <div class="font-medium text-gray-900 dark:text-slate-100">{{ WorkHours::label($day['minutes']) }}</div>
                                         @if($day['overtime'] > 0)
@@ -137,7 +134,7 @@
                                     @endif
                                 </td>
 
-                                <td data-label="Location" class="px-4 py-2.5">
+                                <td data-label="Location" class="px-4 py-2.5 {{ $day['in'] ? '' : 'stack-skip' }}">
                                     @if($day['in'])
                                         <div class="text-gray-700 dark:text-slate-200">{{ $day['site'] ?? '—' }}</div>
                                         @if($day['exception'])

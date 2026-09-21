@@ -2,10 +2,11 @@
     use App\Models\CheckpointCampaign;
     $c = $campaign;
     $live = $c->isLive();
+    $pct = $counts['total'] ? (int) round($counts['completed'] / $counts['total'] * 100) : 0;
 @endphp
 <x-app-layout>
     <x-slot name="header">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point · {{ $c->isDraft() ? 'Review' : 'Monitoring' }}</h1>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Check Point</h1>
     </x-slot>
     <x-slot name="back">{{ route('checkpoints.index') }}</x-slot>
     <x-slot name="backLabel">Back to Check Point</x-slot>
@@ -16,16 +17,29 @@
             <div class="rounded-xs border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-200">{{ $errors->first() }}</div>
         @endif
 
-        {{-- Header: shared checkpoint info + controls --}}
+        {{-- What, where, when — and the controls --}}
         <div class="card p-5">
             <div class="flex flex-wrap items-start justify-between gap-4">
                 <div class="min-w-0">
-                    @if($c->starts_at)<a href="{{ route('checkpoints.daily', ['date' => $c->starts_at->toDateString(), 'site' => $c->project_site_id]) }}" class="text-xs text-brand-700 hover:underline dark:text-brand-300">All checkpoints on {{ $c->starts_at->format('M j') }} at this site</a>@endif
-                    <div class="mt-1 flex flex-wrap items-center gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
                         <h2 class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ $c->name }}</h2>
                         <x-campaign-status-badge :campaign="$c" />
                     </div>
-                    <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">{{ $c->site?->name }} · <span class="font-medium text-gray-800 dark:text-slate-100">“{{ $c->instruction }}”</span></p>
+                    <p class="mt-1 text-sm text-gray-600 dark:text-slate-300">{{ $c->site?->name }} · “{{ $c->instruction }}”</p>
+                    <p class="mt-2 text-sm tabular-nums text-gray-700 dark:text-slate-200">
+                        @if($live)
+                            Started <b>{{ $c->starts_at->format('g:i A') }}</b> · deadline <b class="text-accent-700 dark:text-accent-300">{{ $c->expires_at->format('g:i A') }}</b>
+                            · @if($c->status === CheckpointCampaign::PAUSED)<span class="badge badge-warn">Paused</span>@else<span class="font-display text-base font-bold text-accent-700 dark:text-accent-300" x-text="countdown()">{{ gmdate('i:s', $c->secondsRemaining()) }}</span> left @endif
+                        @elseif($c->starts_at)
+                            {{ $c->starts_at->format('D, M j') }} · {{ $c->starts_at->format('g:i A') }} – {{ $c->expires_at?->format('g:i A') }}
+                        @elseif($c->isScheduled())
+                            Fires at <b class="font-display text-base">{{ $c->scheduled_start_at->format('g:i A') }}</b> on {{ $c->scheduled_start_at->format('D, M j') }}
+                            <span class="badge {{ $c->isRandomlyScheduled() ? 'badge-info' : 'badge-neutral' }}">{{ $c->isRandomlyScheduled() ? 'System-generated' : 'Set by admin' }}</span>
+                            <span class="text-gray-500 dark:text-slate-400">· {{ $c->response_window_minutes }}-minute window · only admins see this time</span>
+                        @else
+                            <span class="text-gray-500 dark:text-slate-400">Not scheduled yet · {{ $c->response_window_minutes }}-minute window once it starts</span>
+                        @endif
+                    </p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-1.5">
@@ -36,7 +50,7 @@
                         @can('activate checkpoint campaign')
                             <x-confirm-action :action="route('checkpoints.activate', $c)" size="md" variant="primary" button="Activate now"
                                 title="Activate this checkpoint now?"
-                                message="The server will set one start time (now) and one deadline ({{ $c->response_window_minutes }} minutes from now) for all {{ $employees->count() }} selected employee(s) at {{ $c->site?->name }}, and notify them immediately." />
+                                message="The server will set one start time (now) and one deadline ({{ $c->response_window_minutes }} minutes from now) for all {{ $counts['total'] }} selected employee(s) at {{ $c->site?->name }}, and notify them immediately." />
                             <div x-data="{ open: false, mode: 'random' }" class="inline-block">
                                 <button type="button" @click="open = true" class="btn-app btn-sm btn-outline-brand">{{ $c->isScheduled() ? 'Change start time' : 'Schedule' }}</button>
                                 <template x-teleport="body">
@@ -118,153 +132,84 @@
                     @if($c->status === CheckpointCampaign::EXPIRED)
                         @can('end checkpoint campaign')
                             <x-confirm-action :action="route('checkpoints.complete', $c)" tone="brand" size="md" button="Mark completed"
-                                title="Mark this checkpoint completed?" message="{{ $counts['open_follow_ups'] ? $counts['open_follow_ups'] . ' employee(s) still have an open follow-up. ' : '' }}You can still review individual cases afterwards." />
+                                title="Mark this checkpoint completed?" message="{{ $counts['not_completed'] ? $counts['not_completed'] . ' employee(s) did not complete it. ' : '' }}The result is kept as it is." />
                         @endcan
                     @endif
-                    @can('export checkpoint reports')
-                        @unless($c->isDraft())
-                            <a href="{{ route('checkpoints.export', $c) }}" class="btn-app btn-sm btn-secondary">Export CSV</a>
-                        @endunless
-                    @endcan
                 </div>
             </div>
-
-            @if($c->isScheduled())
-                <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xs border border-brand-400/40 bg-brand-400/10 px-4 py-3 dark:bg-brand-500/10">
-                    <div>
-                        <p class="text-[10px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300">Checkpoint fires at</p>
-                        <p class="font-display text-2xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->scheduled_start_at->format('g:i A') }} <span class="text-sm font-medium text-gray-500 dark:text-slate-400">{{ $c->scheduled_start_at->format('D, M j') }}</span></p>
-                    </div>
-                    <p class="text-sm text-gray-600 dark:text-slate-300">
-                        @if($c->isRandomlyScheduled())
-                            <span class="badge badge-info">System-generated</span> drawn from {{ $c->randomWindowLabel() }}.
-                        @else
-                            <span class="badge badge-neutral">Set by admin</span>
-                        @endif
-                        Only admins see this — give the PM / team leader a heads-up before then.
-                    </p>
-                </div>
-            @endif
-
-            {{-- Official times --}}
-            <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Start time</dt><dd class="font-display text-lg font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->starts_at?->format('g:i A') ?? ($c->scheduled_start_at ? $c->scheduled_start_at->format('M j, g:i A') : '—') }}</dd></div>
-                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Deadline</dt><dd class="font-display text-lg font-bold tabular-nums text-accent-700 dark:text-accent-300">{{ $c->expires_at?->format('g:i A') ?? '—' }}</dd></div>
-                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Response window</dt><dd class="font-display text-lg font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $c->response_window_minutes }} min</dd></div>
-                <div class="rounded-xs px-3 py-2 {{ $live ? 'bg-accent-50 dark:bg-accent-900/20' : 'bg-gray-50 dark:bg-slate-800/60' }}"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Remaining</dt>
-                    <dd class="font-display text-lg font-bold tabular-nums {{ $live ? 'text-accent-700 dark:text-accent-300' : 'text-gray-500' }}">
-                        @if($c->status === CheckpointCampaign::PAUSED) Paused @elseif($live) <span x-text="countdown()">{{ gmdate('i:s', $c->secondsRemaining()) }}</span> @elseif($c->expires_at) Closed @else — @endif
-                    </dd>
-                </div>
-                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Activated by</dt><dd class="text-sm text-gray-900 dark:text-slate-100">{{ $c->activator?->name ?? ($c->activated_at ? 'Scheduler' : '—') }}<span class="block text-[11px] text-gray-500">{{ $c->activated_at?->format('M j, g:i A') }}</span></dd></div>
-                <div class="rounded-xs bg-gray-50 px-3 py-2 dark:bg-slate-800/60"><dt class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Created by</dt><dd class="text-sm text-gray-900 dark:text-slate-100">{{ $c->creator?->name ?? '—' }}<span class="block text-[11px] text-gray-500">{{ $c->created_at->format('M j, g:i A') }}</span></dd></div>
-            </dl>
-            @if($c->reason)<p class="mt-3 text-xs text-gray-500 dark:text-slate-400">Reason: “{{ $c->reason }}”</p>@endif
-            @if($live)
-                <p class="mt-3 text-xs text-gray-500 dark:text-slate-400">Every employee shares this start time and deadline; the server clock is the official time. This page refreshes automatically while the checkpoint is running.</p>
-            @endif
         </div>
 
-        @if($c->isDraft())
-            {{-- Draft: review employees before activating --}}
-            <section class="card p-5">
-                <div class="rounded-xs border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/30 dark:text-sky-200">
-                    <strong>Review before activating.</strong> Nothing is sent until you activate the checkpoint or its scheduled start time arrives.
-                </div>
-                <h3 class="mt-4 text-sm font-semibold text-gray-900 dark:text-slate-100">Selected employees <span class="font-normal text-gray-500">({{ $employees->count() }})</span></h3>
-                <div class="mt-2 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
-                        <thead class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400"><tr><th class="py-2 pr-4">Employee</th><th class="py-2 pr-4">No.</th><th class="py-2 pr-4">Type</th><th class="py-2">Current assignment</th></tr></thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
-                            @foreach($employees as $e)
-                                <tr>
-                                    <td class="py-2 pr-4 font-medium text-gray-900 dark:text-slate-100">{{ $e->full_name }}</td>
-                                    <td class="py-2 pr-4 text-gray-500 dark:text-slate-400">{{ $e->employee_no }}</td>
-                                    <td class="py-2 pr-4 capitalize text-gray-600 dark:text-slate-300">{{ $e->employee_type }}</td>
-                                    <td class="py-2 {{ $e->activeAssignment?->site_id === $c->project_site_id ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-500 dark:text-slate-400' }}">{{ $e->activeAssignment?->site?->name ?? 'Office / unassigned' }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-        @else
-            {{-- Outcome: completed vs not completed (waiting only while the window is open) --}}
-            @php
-                $notCompleted = $counts['total'] - $counts['completed'] - ($live ? $counts['pending'] : 0);
-                $pct = $counts['total'] ? (int) round($counts['completed'] / $counts['total'] * 100) : 0;
-            @endphp
-            <div class="card p-5">
-                <div class="grid gap-4 sm:grid-cols-3">
-                    <div>
-                        <p class="eyebrow text-[10px]">Completed</p>
-                        <p class="mt-1 font-display text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{{ $counts['completed'] }} <span class="text-base font-medium text-gray-500 dark:text-slate-400">of {{ $counts['total'] }}</span></p>
-                    </div>
-                    <div>
-                        <p class="eyebrow text-[10px]">Not completed</p>
-                        <p class="mt-1 font-display text-3xl font-bold tabular-nums {{ $notCompleted ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400 dark:text-slate-500' }}">{{ $notCompleted }}</p>
-                    </div>
-                    @if($live)
-                        <div>
-                            <p class="eyebrow text-[10px]">Waiting</p>
-                            <p class="mt-1 font-display text-3xl font-bold tabular-nums text-sky-600 dark:text-sky-400">{{ $counts['pending'] }}</p>
-                        </div>
-                    @else
-                        <div>
-                            <p class="eyebrow text-[10px]">Completion rate</p>
-                            <p class="mt-1 font-display text-3xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ $pct }}%</p>
-                        </div>
-                    @endif
-                </div>
-                <div class="mt-4 flex h-2 overflow-hidden rounded-none bg-gray-200 dark:bg-slate-700" role="img" aria-label="{{ $counts['completed'] }} completed, {{ $notCompleted }} not completed">
-                    <div class="bg-emerald-500" style="width: {{ $pct }}%"></div>
-                    @if($live)<div class="bg-sky-400" style="width: {{ $counts['total'] ? round($counts['pending'] / $counts['total'] * 100) : 0 }}%"></div>@endif
-                    <div class="bg-accent-500" style="width: {{ $counts['total'] ? round($notCompleted / $counts['total'] * 100) : 0 }}%"></div>
-                </div>
-                <p class="mt-3 text-xs text-gray-500 dark:text-slate-400">
-                    Not completed breaks down as: <b class="text-gray-800 dark:text-slate-200">{{ $counts['missed'] }}</b> missed ·
-                    <b class="text-gray-800 dark:text-slate-200">{{ $counts['outside'] }}</b> outside geofence ·
-                    <b class="text-gray-800 dark:text-slate-200">{{ $counts['review'] }}</b> requires review
-                    @if(! $live && $counts['open_follow_ups']) · <b class="text-amber-700 dark:text-amber-300">{{ $counts['open_follow_ups'] }}</b> follow-up(s) open @endif
-                </p>
+        @unless($c->isDraft())
+            <div class="stat-strip">
+                <x-stat label="Completed" :value="$counts['completed']" :hint="'of '.$counts['total'].' employees'" tone="success" />
+                <x-stat label="Waiting" :value="$counts['waiting']" :hint="$live ? 'window still open' : '—'" :tone="$counts['waiting'] ? 'brand' : 'muted'" />
+                <x-stat label="Not completed" :value="$counts['not_completed']" :hint="$counts['not_completed'] ? 'missed, outside the site, or failed' : 'none'" :tone="$counts['not_completed'] ? 'danger' : 'muted'" />
+                <x-stat label="Completion" :value="$pct.'%'" :hint="$c->expires_at ? 'deadline '.$c->expires_at->format('g:i A') : null" />
             </div>
+        @endunless
 
-            {{-- TABLE 1 --}}
-            <section class="card overflow-hidden">
-                <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100"><span class="badge badge-success mr-2">Completed</span>Employees who completed the checkpoint</h3>
-                    <span class="text-xs text-gray-500 dark:text-slate-400">{{ $completed->count() }} of {{ $counts['total'] }}</span>
-                </div>
-                <x-checkpoints.completed-table :rows="$completed" :campaign="$c" />
-            </section>
-
-            {{-- TABLE 2 --}}
-            <section class="card overflow-hidden">
-                <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">@if($live)<span class="badge badge-info mr-2">Waiting</span>Employees who have not responded yet @else<span class="badge badge-danger mr-2">Not completed</span>Employees who did not complete the checkpoint @endif</h3>
-                    <span class="text-xs text-gray-500 dark:text-slate-400">{{ $pending->count() }}@if(! $live && $counts['open_follow_ups']) · {{ $counts['open_follow_ups'] }} follow-up(s) open @endif</span>
-                </div>
-                <x-checkpoints.pending-table :rows="$pending" :campaign="$c" />
-            </section>
-        @endif
-
-        {{-- Audit log --}}
-        <section class="card p-5">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Audit log</h3>
-            <ul class="mt-3 divide-y divide-gray-100 text-sm dark:divide-slate-700">
-                @forelse($audit as $a)
-                    <li class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2">
-                        <span class="w-36 shrink-0 text-xs tabular-nums text-gray-500 dark:text-slate-400">{{ $a->created_at->format('M j, g:i:s A') }}</span>
-                        <span class="font-medium text-gray-900 dark:text-slate-100">{{ $a->action_label }}</span>
-                        <span class="text-xs text-gray-500 dark:text-slate-400">{{ $a->user?->name ?? 'System' }}@if($a->checkpoint_id) · CP-{{ str_pad($a->checkpoint_id, 6, '0', STR_PAD_LEFT) }}@endif</span>
-                        @if($a->details)
-                            <span class="w-full text-xs text-gray-500 dark:text-slate-400 sm:w-auto">@foreach($a->details as $k => $v)<span class="mr-2">{{ $k }}: {{ is_scalar($v) ? $v : json_encode($v) }}</span>@endforeach</span>
-                        @endif
-                    </li>
-                @empty
-                    <li class="py-4 text-center text-gray-400 dark:text-slate-500">No actions yet.</li>
-                @endforelse
-            </ul>
+        {{-- Who completed it --}}
+        <section class="card overflow-hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-slate-700">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                    @if($c->isDraft())
+                        Employees on this checkpoint <span class="font-normal text-gray-500 dark:text-slate-400">({{ $counts['total'] }})</span>
+                    @else
+                        <span class="font-display text-lg text-emerald-600 dark:text-emerald-400">{{ $counts['completed'] }}</span>
+                        <span class="text-gray-500 dark:text-slate-400">of {{ $counts['total'] }} completed</span>
+                        @if($counts['waiting']) · <span class="text-sky-700 dark:text-sky-300">{{ $counts['waiting'] }} waiting</span>@endif
+                        @if($counts['not_completed']) · <span class="text-accent-700 dark:text-accent-300">{{ $counts['not_completed'] }} not completed</span>@endif
+                    @endif
+                </h3>
+                @unless($c->isDraft())
+                    <div class="flex h-1.5 w-40 overflow-hidden bg-gray-200 dark:bg-slate-700" role="img" aria-label="{{ $pct }}% completed">
+                        <div class="bg-emerald-500" style="width: {{ $pct }}%"></div>
+                        @if($live)<div class="bg-sky-400" style="width: {{ $counts['total'] ? round($counts['waiting'] / $counts['total'] * 100) : 0 }}%"></div>@endif
+                    </div>
+                @endunless
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table-stack min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                    <thead class="whitespace-nowrap bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:bg-slate-800/60 dark:text-slate-400">
+                        <tr>
+                            <th class="px-4 py-3">Employee</th>
+                            <th class="px-4 py-3">No.</th>
+                            <th class="px-4 py-3">Result</th>
+                            <th class="px-4 py-3">Time</th>
+                            @can('view checkpoint results')<th class="px-4 py-3 text-right">Actions</th>@endcan
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                        @forelse($rows as $r)
+                            @php $e = $r['employee']; $cp = $r['checkpoint']; @endphp
+                            <tr class="hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
+                                <td class="cell-head px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{{ $e->full_name }}</td>
+                                <td data-label="No." class="px-4 py-3 text-gray-500 dark:text-slate-400">{{ $e->employee_no }}</td>
+                                <td data-label="Result" class="px-4 py-3">
+                                    @switch($r['result'])
+                                        @case('completed') <span class="badge badge-success"><i class="dot"></i>Completed</span> @break
+                                        @case('waiting') <span class="badge badge-info"><i class="dot animate-pulse"></i>Waiting</span> @break
+                                        @case('not_completed') <span class="badge badge-danger"><i class="dot"></i>Not completed</span> @break
+                                        @default <span class="badge badge-neutral">Not started</span>
+                                    @endswitch
+                                </td>
+                                <td data-label="Time" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">
+                                    {{ $cp?->submitted_at?->format('g:i A') ?? '—' }}
+                                </td>
+                                @can('view checkpoint results')
+                                    <td data-label="Actions" class="px-4 py-3 whitespace-nowrap">
+                                        @if($cp)
+                                            <div class="row-actions"><a href="{{ route('checkpoints.results.show', $cp) }}">Details</a></div>
+                                        @endif
+                                    </td>
+                                @endcan
+                            </tr>
+                        @empty
+                            <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 dark:text-slate-500">No employees on this checkpoint.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </section>
     </div>
 

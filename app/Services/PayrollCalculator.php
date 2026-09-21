@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Models\ContributionRate;
 use App\Models\Employee;
+use App\Models\PayrollDeduction;
 use App\Models\PayrollItem;
 use App\Models\PayrollPeriod;
 use App\Services\Payroll\PayrollRates;
 use Carbon\CarbonPeriod;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Turns an employee's attendance, approved overtime and leave into a
@@ -56,14 +58,21 @@ class PayrollCalculator
             ->exists();
 
         $absencesDeduction = 0;
-        $isFlexible = optional($employee->schedule)->is_flexible;
 
-        // Only deduct absences for fixed-schedule staff who actually have logs
-        // in the period (avoids zeroing pay when no data has been captured yet).
-        if (! $isFlexible && $hasAttendance) {
+        // Everyone is on the fixed office shift. Only deduct absences when the
+        // employee actually has logs in the period (avoids zeroing pay when no
+        // data has been captured yet).
+        if ($hasAttendance) {
             $absentDays = max(0, $expectedDays - $workedDays - $approvedLeaveDays);
             $absencesDeduction = round($absentDays * $daily, 2);
         }
+
+        // ---- late / undertime: office hours are fixed (8:30 – 5:30). Arriving
+        // early never earns an early out: minutes in after time-in + grace are
+        // late, minutes out before time-out are undertime, each deducted at the
+        // per-minute rate. An approved early-leave or half-day for that date
+        // excuses the undertime; late is only excused by a full-day leave.
+        $lateUndertime = $hasAttendance ? $this->lateUndertimeDeduction($employee, $period, $hourly) : 0.0;
 
         // ---- half-day leave: each APPROVED half day is paid at half the daily
         // rate, i.e. withhold 0.5 × daily. Only HR-approved half days count;
@@ -115,32 +124,88 @@ class PayrollCalculator
         $taxable = max(0, $grossPay - $sss - $philhealth - $pagibig);
         $withholdingTax = round($taxable * PayrollRates::get('withholding_tax_percent') / 100, 2);
 
-        $totalDeductions = round($absencesDeduction + $halfDayDeduction + $sss + $philhealth + $pagibig + $withholdingTax + $otherDeductions, 2);
-        $netPay = round($grossPay - $totalDeductions, 2);
+        return DB::transaction(function () use ($employee, $period, $existing, $allowances, $otherDeductions, $basicPay, $overtimePay, $grossPay, $lateUndertime, $absencesDeduction, $halfDayDeduction, $sss, $philhealth, $pagibig, $withholdingTax) {
+            // ---- loans & missing items: give back what this line took last time
+            // (a recalculation must never charge twice), then take this cutoff's
+            // installment from every balance that is due.
+            if ($existing) {
+                $this->reverseDeductionPayments($existing);
+            }
 
-        return PayrollItem::updateOrCreate(
-            ['employee_id' => $employee->id, 'payroll_period_id' => $period->id],
-            [
-                'adjusted_at' => null,
-                'adjusted_by' => null,
-                'allowances' => $allowances,
-                'other_deductions' => $otherDeductions,
-                'basic_pay' => $basicPay,
-                'overtime_pay' => $overtimePay,
-                'night_diff_pay' => 0,
-                'holiday_pay' => 0,
-                'gross_pay' => $grossPay,
-                'late_undertime_deduction' => 0,
-                'absences_deduction' => $absencesDeduction,
-                'half_day_deduction' => $halfDayDeduction,
-                'sss_deduction' => $sss,
-                'philhealth_deduction' => $philhealth,
-                'pagibig_deduction' => $pagibig,
-                'withholding_tax' => $withholdingTax,
-                'total_deductions' => $totalDeductions,
-                'net_pay' => $netPay,
-            ]
-        );
+            $item = PayrollItem::updateOrCreate(
+                ['employee_id' => $employee->id, 'payroll_period_id' => $period->id],
+                [
+                    'adjusted_at' => null,
+                    'adjusted_by' => null,
+                    'allowances' => $allowances,
+                    'other_deductions' => $otherDeductions,
+                    'basic_pay' => $basicPay,
+                    'overtime_pay' => $overtimePay,
+                    'night_diff_pay' => 0,
+                    'holiday_pay' => 0,
+                    'gross_pay' => $grossPay,
+                    'late_undertime_deduction' => $lateUndertime,
+                    'absences_deduction' => $absencesDeduction,
+                    'half_day_deduction' => $halfDayDeduction,
+                    'sss_deduction' => $sss,
+                    'philhealth_deduction' => $philhealth,
+                    'pagibig_deduction' => $pagibig,
+                    'withholding_tax' => $withholdingTax,
+                    'loan_deduction' => 0,
+                    'missing_item_deduction' => 0,
+                ]
+            );
+
+            [$loan, $missing] = $this->collectDeductions($item, $employee, $period);
+            $item->loan_deduction = $loan;
+            $item->missing_item_deduction = $missing;
+            $item->recomputeTotals()->save();
+
+            return $item;
+        });
+    }
+
+    /** Undo the loan / missing-item installments a payroll line took, restoring each balance. */
+    public function reverseDeductionPayments(PayrollItem $item): void
+    {
+        foreach ($item->deductionPayments()->with('deduction')->get() as $payment) {
+            $payment->deduction?->refund((float) $payment->amount);
+            $payment->delete();
+        }
+    }
+
+    /**
+     * Take this cutoff's installment from every active loan / missing-item
+     * balance due for the employee. Returns [loan total, missing-item total].
+     *
+     * @return array{0: float, 1: float}
+     */
+    private function collectDeductions(PayrollItem $item, Employee $employee, PayrollPeriod $period): array
+    {
+        $loan = 0.0;
+        $missing = 0.0;
+
+        $due = PayrollDeduction::where('employee_id', $employee->id)->dueFor($period)->orderBy('starts_on')->orderBy('id')->get();
+        foreach ($due as $deduction) {
+            $amount = $deduction->nextInstallment();
+            if ($amount <= 0) {
+                continue;
+            }
+            $item->deductionPayments()->create([
+                'payroll_deduction_id' => $deduction->id,
+                'payroll_period_id' => $period->id,
+                'amount' => $amount,
+            ]);
+            $deduction->collect($amount);
+
+            if ($deduction->isLoan()) {
+                $loan += $amount;
+            } else {
+                $missing += $amount;
+            }
+        }
+
+        return [round($loan, 2), round($missing, 2)];
     }
 
     /**
@@ -176,6 +241,52 @@ class PayrollCalculator
         return $cutoffType === 'first_half'
             ? $firstHalf
             : round($monthlyShare - $firstHalf, 2);
+    }
+
+    /**
+     * Sum of late and undertime minutes in the period × per-minute rate.
+     * Uses the first time-in and the last time-out of each day.
+     */
+    private function lateUndertimeDeduction(Employee $employee, PayrollPeriod $period, float $hourly): float
+    {
+        $schedule = $employee->schedule;
+        if (! $schedule || ! $schedule->time_in || ! $schedule->time_out) {
+            return 0.0;
+        }
+
+        $logs = $employee->attendanceLogs()
+            ->whereBetween('logged_at', [$period->period_start->copy()->startOfDay(), $period->period_end->copy()->endOfDay()])
+            ->orderBy('logged_at')
+            ->get()
+            ->groupBy(fn ($log) => $log->logged_at->toDateString());
+
+        // Dates where an approved early-leave / half-day excuses leaving early.
+        $excusedOut = $employee->leaveRequests()
+            ->where('status', 'approved')
+            ->where(fn ($q) => $q->where('is_early_leave', true)->orWhereIn('day_portion', ['half_am', 'half_pm']))
+            ->whereBetween('date_from', [$period->period_start, $period->period_end])
+            ->pluck('date_from')->map(fn ($d) => $d->toDateString())->flip();
+
+        $minutes = 0;
+        foreach ($logs as $date => $dayLogs) {
+            $in = $dayLogs->firstWhere('log_type', 'time_in')?->logged_at;
+            $out = $dayLogs->where('log_type', 'time_out')->last()?->logged_at;
+
+            if ($in) {
+                $expectedIn = $in->copy()->setTimeFromTimeString($schedule->time_in)->addMinutes((int) $schedule->grace_minutes);
+                if ($in->gt($expectedIn)) {
+                    $minutes += (int) $expectedIn->diffInMinutes($in);
+                }
+            }
+            if ($out && ! isset($excusedOut[$date])) {
+                $expectedOut = $out->copy()->setTimeFromTimeString($schedule->time_out);
+                if ($out->lt($expectedOut)) {
+                    $minutes += (int) $out->diffInMinutes($expectedOut);
+                }
+            }
+        }
+
+        return round($minutes * ($hourly / 60), 2);
     }
 
     /** Weekdays (Mon–Fri) within the period. */

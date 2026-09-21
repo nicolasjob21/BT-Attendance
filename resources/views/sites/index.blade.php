@@ -27,6 +27,13 @@
             <a href="{{ route('sites.create') }}" class="btn-app btn-md btn-brand">+ Add Location</a>
         </div>
 
+        <div class="stat-strip">
+            <x-stat label="Live project sites" :value="$stats['live']" hint="plus the head office, always open" tone="brand" />
+            <x-stat label="Employees deployed" :value="$stats['deployed']" hint="currently assigned to a project" />
+            <x-stat label="Ending within 14 days" :value="$stats['ending']" :hint="$stats['ending'] ? 'extend or mark completed' : 'none due'" :tone="$stats['ending'] ? 'warn' : 'muted'" />
+            <x-stat label="Finished / paused" :value="$stats['finished']" hint="kept so past attendance keeps its place" />
+        </div>
+
         <p class="text-xs text-gray-500 dark:text-slate-400">
             Employees may clock in at <strong>any active</strong> location — the main office plus every live project site. Finished projects should be marked <em>completed</em>, not deleted, so past attendance keeps its location.
             Geofence mode: <span class="font-medium capitalize text-gray-700 dark:text-slate-200">{{ config('attendance.geofence_mode') }}</span>.
@@ -137,7 +144,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No locations yet. Add the main office first.</td></tr>
+                            <tr><td colspan="7" class="p-0"><x-empty-state icon="map" title="No locations yet" hint="Add the head office first, then each project site with its geofence." :href="route('sites.create')" action="Add location" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

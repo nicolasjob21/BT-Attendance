@@ -11,10 +11,10 @@ use App\Http\Controllers\LeaveController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OvertimeController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\PayrollDeductionController;
 use App\Http\Controllers\PayrollRatesController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectAssignmentController;
-use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SiteController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -64,7 +64,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/overtime', [OvertimeController::class, 'store'])->name('overtime.store');
     });
 
-    // Own payslip, or anyone's with `view all payslips` / `run payroll` (checked in the controller).
+    // Own payslips (released periods only), or anyone's with `view all payslips` / `run payroll` (checked in the controller).
+    Route::get('/my-payslips', [PayrollController::class, 'mine'])->middleware('permission:view own payslip')->name('payroll.mine');
     Route::get('/payroll/item/{item}', [PayrollController::class, 'show'])->name('payroll.show');
 
     // --- Approvals (Dept. Head, HR, Admin) ---
@@ -99,13 +100,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::patch('/employees/{employee}/assignments/{assignment}/end', [ProjectAssignmentController::class, 'end'])->name('employees.assignments.end');
     });
 
-    // --- Roles & permissions (registered before /users/{user} so "roles" is not read as an id) ---
-    Route::middleware('permission:manage roles')->group(function () {
-        Route::get('/users/roles', [RoleController::class, 'index'])->name('roles.index');
-        Route::put('/users/roles', [RoleController::class, 'update'])->name('roles.update');
-        Route::post('/users/roles/reset', [RoleController::class, 'reset'])->name('roles.reset');
-    });
-
     // --- User management: login accounts, roles, live presence (Super Admin, Developer) ---
     Route::middleware('permission:manage users')->group(function () {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
@@ -127,6 +121,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('permission:manage settings|manage sites')->group(function () {
         Route::get('/settings/sites', [SiteController::class, 'index'])->name('sites.index');
         Route::get('/settings/sites/create', [SiteController::class, 'create'])->name('sites.create');
+        Route::get('/settings/sites/resolve-link', [SiteController::class, 'resolveLink'])->name('sites.resolve-link');
         Route::post('/settings/sites', [SiteController::class, 'store'])->name('sites.store');
         Route::get('/settings/sites/{site}/edit', [SiteController::class, 'edit'])->name('sites.edit');
         Route::put('/settings/sites/{site}', [SiteController::class, 'update'])->name('sites.update');
@@ -139,7 +134,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/payroll/{period}/generate', [PayrollController::class, 'generate'])->name('payroll.generate');
         Route::post('/payroll/periods', [PayrollController::class, 'createPeriod'])->name('payroll.periods.create');
         Route::post('/payroll/{period}/close', [PayrollController::class, 'close'])->name('payroll.close');
-        Route::put('/payroll/settings', [PayrollController::class, 'updateSettings'])->name('payroll.settings');
+        Route::post('/payroll/{period}/release', [PayrollController::class, 'release'])->name('payroll.release');
+        Route::get('/payroll/{period}/export', [PayrollController::class, 'export'])->name('payroll.export');
+        Route::get('/payroll/{period}/print', [PayrollController::class, 'printBatch'])->name('payroll.print');
+        // Loans & missing-item charges (balances paid down per cutoff).
+        Route::get('/payroll/deductions', [PayrollDeductionController::class, 'index'])->name('payroll.deductions');
+        Route::post('/payroll/deductions', [PayrollDeductionController::class, 'store'])->name('payroll.deductions.store');
+        Route::put('/payroll/deductions/{deduction}', [PayrollDeductionController::class, 'update'])->name('payroll.deductions.update');
+        Route::post('/payroll/deductions/{deduction}/cancel', [PayrollDeductionController::class, 'cancel'])->name('payroll.deductions.cancel');
         Route::get('/payroll/lines/{item}/edit', [PayrollController::class, 'edit'])->name('payroll.lines.edit');
         Route::put('/payroll/lines/{item}', [PayrollController::class, 'update'])->name('payroll.lines.update');
         Route::post('/payroll/lines/{item}/reset', [PayrollController::class, 'reset'])->name('payroll.lines.reset');

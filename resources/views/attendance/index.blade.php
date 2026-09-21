@@ -16,9 +16,19 @@
             </div>
         @endif
 
-        <div class="flex flex-wrap items-center justify-end gap-3">
-            <a href="{{ route('attendance.timesheet', auth()->user()->employee) }}" class="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">Monthly timesheet</a>
-            <a href="{{ route('attendance.create') }}" class="btn-app btn-md btn-brand">Clock In / Out</a>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-sm text-gray-500 dark:text-slate-400">Every clock in and out you have recorded, newest first. {{ now()->format('F') }} so far:</p>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('attendance.timesheet', auth()->user()->employee) }}" class="btn-app btn-md btn-secondary">Monthly timesheet</a>
+                <a href="{{ route('attendance.create') }}" class="btn-app btn-md btn-brand">Clock In / Out</a>
+            </div>
+        </div>
+
+        <div class="stat-strip">
+            <x-stat label="Days worked" :value="$month['days']" :hint="now()->format('F Y')" tone="brand" />
+            <x-stat label="Hours worked" :value="sprintf('%d:%02d', intdiv($month['minutes'], 60), $month['minutes'] % 60)" hint="closed sessions only" />
+            <x-stat label="Late arrivals" :value="$month['late']" :hint="$month['late'] ? 'after the 15-minute grace' : 'none — nice'" :tone="$month['late'] ? 'warn' : 'success'" />
+            <x-stat label="Last punch" :value="$month['last']?->logged_at->format('g:i A') ?? '—'" :hint="$month['last'] ? ($month['last']->log_type === 'time_in' ? 'Time in · ' : 'Time out · ').$month['last']->logged_at->format('D, M j') : 'No punches yet'" :tone="$month['last'] ? 'neutral' : 'muted'" />
         </div>
 
         <div class="overflow-hidden card">
@@ -93,7 +103,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">No attendance logs yet.</td></tr>
+                            <tr><td colspan="5" class="p-0"><x-empty-state icon="clock" title="No attendance yet" hint="Your first clock in will appear here with its selfie, time and location." :href="route('attendance.create')" action="Clock in now" /></td></tr>
                         @endforelse
                     </tbody>
                 </table>

@@ -5,7 +5,7 @@
     <x-slot name="back">{{ route('leave.index') }}</x-slot>
     <x-slot name="backLabel">Back to Leave</x-slot>
 
-    <div class="mx-auto max-w-xl">
+    <div class="page-form form-split">
         <form method="POST" action="{{ route('leave.early.store') }}" class="space-y-5 card p-6">
             @csrf
 
@@ -37,5 +37,12 @@
                 <button type="submit" class="btn-app btn-md btn-brand">Submit request</button>
             </div>
         </form>
+
+        <x-form-aside title="What happens next" :facts="$facts">
+            <li>HR is notified immediately and approves or denies it — usually the same day.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Approved</b>: clocking out before your scheduled time is <b>not</b> counted as undertime for that day.</li>
+            <li><b class="text-gray-800 dark:text-slate-100">Not approved</b>: the minutes before your scheduled time out are deducted at your per-minute rate.</li>
+            <li>Still clock out on your phone when you leave — this request does not replace the punch.</li>
+        </x-form-aside>
     </div>
 </x-app-layout>

@@ -2,19 +2,19 @@
 
 namespace App\Console\Commands;
 
-use App\Services\Payroll\PayrollAutomation;
+use App\Services\Payroll\PayrollRunner;
 use Illuminate\Console\Command;
 
 class PayrollTick extends Command
 {
     protected $signature = 'payroll:tick';
 
-    protected $description = 'Create the current/next payroll periods and, when automation is on, generate payroll for periods that have ended.';
+    protected $description = 'Keep the current/next payroll periods ready and, on pay day, remind everyone who runs payroll.';
 
-    public function handle(PayrollAutomation $automation): int
+    public function handle(PayrollRunner $runner): int
     {
-        $r = $automation->tick();
-        $this->info("Periods created: {$r['periods_created']} · Generated: ".($r['generated'] ? implode(', ', $r['generated']) : 'none'));
+        $r = $runner->tick();
+        $this->info("Periods created: {$r['periods_created']} · Reminded: ".($r['reminded'] ? implode(', ', $r['reminded']) : 'none'));
 
         return self::SUCCESS;
     }

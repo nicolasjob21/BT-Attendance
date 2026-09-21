@@ -1,28 +1,22 @@
 <x-app-layout>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 dark:text-slate-100 leading-tight">
-            {{ __('Profile') }}
-        </h2>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-slate-100">{{ __('Profile') }}</h1>
     </x-slot>
     <x-slot name="back">{{ route('dashboard') }}</x-slot>
     <x-slot name="backLabel">Back to Dashboard</x-slot>
 
-    <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-            <div class="p-4 sm:p-8 bg-white dark:bg-slate-800 shadow-sm sm:rounded-xs">
-                <div class="max-w-xl">
-                    @include('profile.partials.update-profile-information-form')
-                </div>
+    <div class="page space-y-4">
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div class="card p-5 sm:p-6">
+                @include('profile.partials.update-profile-information-form')
             </div>
 
-            <div class="p-4 sm:p-8 bg-white dark:bg-slate-800 shadow-sm sm:rounded-xs">
-                <div class="max-w-xl">
+            <div class="space-y-4">
+                <div class="card p-5 sm:p-6">
                     @include('profile.partials.update-password-form')
                 </div>
-            </div>
 
-            <div class="p-4 sm:p-8 bg-white dark:bg-slate-800 shadow-sm sm:rounded-xs">
-                <div class="max-w-xl">
+                <div class="card border-accent-600/40 p-5 sm:p-6">
                     @include('profile.partials.delete-user-form')
                 </div>
             </div>

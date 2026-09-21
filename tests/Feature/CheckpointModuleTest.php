@@ -79,7 +79,6 @@ class CheckpointModuleTest extends TestCase
             'name' => 'Site A — Afternoon presence check',
             'project_site_id' => $this->siteA->id,
             'instruction' => 'Capture the project entrance.',
-            'reason' => 'Reports of staff leaving after lunch.',
             'employees' => [$this->tech->id, $this->second->id],
             'response_window_minutes' => 10,
         ], $overrides);
@@ -126,7 +125,50 @@ class CheckpointModuleTest extends TestCase
     public function test_sidebar_shows_check_point_only_to_authorized_roles(): void
     {
         $this->actingAs($this->hr)->get(route('dashboard'))->assertSee(route('checkpoints.index'));
-        $this->actingAs($this->techUser)->get(route('dashboard'))->assertDontSee(route('checkpoints.index'))->assertSee(route('my-checkpoints.index'));
+
+        // Not deployed to any project yet: the employee-facing module is not offered at all.
+        $this->actingAs($this->techUser)->get(route('dashboard'))
+            ->assertDontSee(route('checkpoints.index'))
+            ->assertDontSee(route('my-checkpoints.index'));
+    }
+
+    /** The module is per-project: only employees deployed to (and picked for) that project see it. */
+    public function test_my_checkpoints_link_only_shows_for_employees_assigned_to_the_checkpointed_project(): void
+    {
+        $otherSite = Site::create([
+            'name' => 'Project Site B — Makati', 'type' => 'project_site', 'client_name' => 'Other Client',
+            'address' => 'Makati, Philippines', 'latitude' => 14.5547, 'longitude' => 121.0244,
+            'geofence_radius_m' => 200, 'status' => 'active',
+        ]);
+
+        // Deployed to a different project entirely: no link, campaign or not.
+        $this->tech->projectAssignments()->create([
+            'site_id' => $otherSite->id, 'start_date' => '2026-09-01', 'status' => 'active', 'created_by' => $this->hr->id,
+        ]);
+        $this->createDraft(); // campaign is for siteA, tech + second as participants
+        // actingAs() pins the exact object passed; fetch it fresh each time so it
+        // is not serving a stale, pre-mutation "activeAssignment" from its cache.
+        $this->actingAs($this->techUser->fresh())->get(route('dashboard'))->assertDontSee(route('my-checkpoints.index'));
+
+        // Deployed to Site A (the checkpointed project) and picked as a participant: link appears.
+        $this->tech->fresh()->activeAssignment->end(Carbon::parse('2026-09-14'));
+        $this->tech->projectAssignments()->create([
+            'site_id' => $this->siteA->id, 'start_date' => '2026-09-15', 'status' => 'active', 'created_by' => $this->hr->id,
+        ]);
+        $this->actingAs($this->techUser->fresh())->get(route('dashboard'))->assertSee(route('my-checkpoints.index'));
+
+        // A third employee also deployed to Site A but never picked for the campaign: still hidden.
+        $thirdUser = User::factory()->create(['name' => 'Third Tech']);
+        $thirdUser->assignRole('employee');
+        $third = Employee::create([
+            'user_id' => $thirdUser->id, 'employee_no' => 'EMP-0098', 'first_name' => 'Third', 'last_name' => 'Tech',
+            'email' => $thirdUser->email, 'employee_type' => 'technical', 'schedule_id' => $this->tech->schedule_id,
+            'monthly_salary' => 20000, 'daily_rate' => 909.09, 'date_hired' => '2025-01-06', 'status' => 'active',
+        ]);
+        $third->projectAssignments()->create([
+            'site_id' => $this->siteA->id, 'start_date' => '2026-09-15', 'status' => 'active', 'created_by' => $this->hr->id,
+        ]);
+        $this->actingAs($thirdUser->fresh())->get(route('dashboard'))->assertDontSee(route('my-checkpoints.index'));
     }
 
     // ── activation: one shared start and deadline ───────────────────
@@ -159,9 +201,9 @@ class CheckpointModuleTest extends TestCase
 
         $this->assertDatabaseHas('checkpoint_audit_logs', ['campaign_id' => $campaign->id, 'action' => 'activated', 'user_id' => $this->hr->id]);
 
-        // Monitoring page shows the shared times and both tables.
+        // Monitoring page shows the shared times and one row per employee, all still waiting.
         $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()
-            ->assertSee('2:30 PM')->assertSee('2:40 PM')->assertSee('Employees who completed the checkpoint')->assertSee('Employees who have not responded yet');
+            ->assertSee('2:30 PM')->assertSee('2:40 PM')->assertSee('of 2 completed')->assertSee('2 waiting')->assertSee($this->tech->full_name)->assertSee($this->second->full_name);
     }
 
     public function test_scheduled_start_is_activated_by_the_server_at_that_time(): void
@@ -206,7 +248,7 @@ class CheckpointModuleTest extends TestCase
 
         // The admin can see the drawn time on the campaign page; the employee's notification has not been sent.
         $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))
-            ->assertOk()->assertSee('Checkpoint fires at')->assertSee($campaign->scheduled_start_at->format('g:i A'))->assertSee('System-generated');
+            ->assertOk()->assertSee('Fires at')->assertSee($campaign->scheduled_start_at->format('g:i A'))->assertSee('System-generated');
         Notification::assertNothingSent();
 
         // The server fires it at that time like any scheduled campaign.
@@ -440,7 +482,7 @@ class CheckpointModuleTest extends TestCase
         $this->assertSame(Checkpoint::MISSED, $cp->refresh()->status);
         $original = [$campaign->refresh()->starts_at, $campaign->expires_at, $cp->server_timestamp];
 
-        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSee('Follow-up needed')->assertSee('Mark for review');
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSee('Not completed')->assertSee('2 not completed');
         $this->actingAs($this->hr)->get(route('checkpoints.results.show', $cp))->assertOk()->assertSee('HR follow-up')->assertSee('No approved leave record');
 
         $url = route('checkpoints.results.follow-up', $cp);
@@ -469,8 +511,8 @@ class CheckpointModuleTest extends TestCase
         // Official times untouched.
         $this->assertEquals($original, [$campaign->refresh()->starts_at, $campaign->expires_at, $cp->server_timestamp]);
 
-        // Approved rows move to the completed table.
-        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSee('Completed after review');
+        // An approved exception counts as completed on the monitoring page.
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $campaign))->assertOk()->assertSeeInOrder(['>1</span>', 'of 2 completed', '1 not completed', 'Completed'], false);
 
         // Rejection path + permission gate.
         $other = $this->responseOf($campaign, $this->second);
@@ -531,7 +573,7 @@ class CheckpointModuleTest extends TestCase
         $this->actingAs($this->hr)->get(route('checkpoints.history', ['status' => 'active', 'site' => $this->siteA->id, 'from' => '2026-09-15', 'to' => '2026-09-15']))->assertOk()->assertSee($campaign->name);
 
         $draft = $this->createDraft(['name' => 'Draft two']);
-        $this->actingAs($this->hr)->get(route('checkpoints.show', $draft))->assertOk()->assertSee('Review before activating')->assertSee('Activate now');
+        $this->actingAs($this->hr)->get(route('checkpoints.show', $draft))->assertOk()->assertSee('Not started')->assertSee('Activate now');
         $this->actingAs($this->hr)->get(route('checkpoints.edit', $draft))->assertOk()->assertSee('Edit Checkpoint');
         $this->actingAs($this->hr)->get(route('checkpoints.index'))->assertOk()->assertSee('Draft two');
     }

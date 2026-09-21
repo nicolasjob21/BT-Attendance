@@ -88,7 +88,10 @@
                     @if($user->canAny(['request overtime', 'approve requests']))
                         <x-nav-item :active="request()->routeIs('overtime.*')" :href="route('overtime.index')" icon="plus-clock">Overtime</x-nav-item>
                     @endif
-                    @if($user->employee && $user->can('clock attendance'))
+                    @can('view own payslip')
+                        <x-nav-item :active="request()->routeIs('payroll.mine')" :href="route('payroll.mine')" icon="cash">My Payslips</x-nav-item>
+                    @endcan
+                    @if($user->employee && $user->can('clock attendance') && $user->employee->hasCheckpointAccess())
                         @php $openCheckpoints = \App\Models\Checkpoint::where('employee_id', $user->employee->id)->whereIn('status', \App\Models\Checkpoint::WAITING_STATUSES)->whereHas('campaign', fn ($q) => $q->where('status', 'active'))->count(); @endphp
                         <x-nav-item :active="request()->routeIs('my-checkpoints.*')" :href="route('my-checkpoints.index')" icon="shield-check" :badge="$openCheckpoints ?: null">My Checkpoints</x-nav-item>
                     @endif
@@ -96,7 +99,7 @@
             </div>
             @endif
 
-            @if($user?->canAny(['manage employees', 'run payroll', 'view team reports', 'manage settings', 'manage sites', 'view checkpoint module', 'manage users', 'manage roles']))
+            @if($user?->canAny(['manage employees', 'run payroll', 'view team reports', 'manage settings', 'manage sites', 'view checkpoint module', 'manage users']))
             <div>
                 <p class="sb-label px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Management</p>
                 <div class="space-y-1">
@@ -115,9 +118,9 @@
                     @if($user->canAny(['manage settings', 'manage sites']))
                         <x-nav-item :active="request()->routeIs('sites.*')" :href="route('sites.index')" icon="map-pin">Locations</x-nav-item>
                     @endif
-                    @if($user->canAny(['manage users', 'manage roles']))
-                        <x-nav-item :active="request()->routeIs('users.*') || request()->routeIs('roles.*')" :href="$user->can('manage users') ? route('users.index') : route('roles.index')" icon="user-cog">User Management</x-nav-item>
-                    @endif
+                    @can('manage users')
+                        <x-nav-item :active="request()->routeIs('users.*')" :href="route('users.index')" icon="user-cog">User Management</x-nav-item>
+                    @endcan
                 </div>
             </div>
             @endif
@@ -236,15 +239,71 @@
             <x-back-button :href="trim($back)" :label="trim($backLabel ?? 'Back')" />
         @endisset
 
-        <main class="{{ isset($immersive) ? 'p-0 sm:p-6' : 'p-4 sm:p-6' }} lg:px-8 lg:py-7">
+        <main class="{{ isset($immersive) ? 'p-0 sm:p-6' : 'p-4 sm:p-6' }} lg:px-8 lg:py-7 {{ isset($back) ? 'pb-24 sm:pb-6' : '' }}">
             {{ $slot }}
         </main>
     </div>
 
+    {{-- Temporary-password gate: shown after signing in with a password an
+         administrator handed out. There is no close button on purpose — the
+         RequirePasswordChange middleware also refuses every other form until
+         the user has set a password of their own. --}}
+    @if($user?->must_change_password)
+        <div class="fixed inset-0 z-[60] flex items-end justify-center p-4 sm:items-center" x-data="{ show: false }">
+            <div class="fixed inset-0 bg-gray-900/75 backdrop-blur-sm"></div>
+            <div class="relative w-full max-w-md overflow-hidden rounded-xs border-2 border-brand-500 bg-white shadow-2xl dark:bg-surface" role="dialog" aria-modal="true" aria-labelledby="temp-password-title">
+                <div class="flex items-center gap-3 bg-brand-600 px-5 py-3 text-white">
+                    <svg class="h-6 w-6 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a3 3 0 11-6 0 3 3 0 016 0zM8 14a5 5 0 00-5 5v1h18v-1a5 5 0 00-5-5H8z" transform="translate(0 -1) scale(.85) translate(2 2)"/><path stroke-linecap="round" stroke-linejoin="round" d="M17 8h4m-2-2v4"/></svg>
+                    <div class="min-w-0 flex-1">
+                        <p id="temp-password-title" class="font-display text-sm font-bold uppercase tracking-wider">Set your own password</p>
+                        <p class="text-xs text-white/85">Signed in as {{ $user->username }}</p>
+                    </div>
+                </div>
+                <form method="post" action="{{ route('password.temporary') }}" class="space-y-4 px-5 py-4 text-sm">
+                    @csrf
+                    @method('put')
+                    <p class="text-gray-700 dark:text-slate-200">You signed in with a <b>temporary password</b> given by your administrator. Choose a new one to continue — you won't be able to use the system until you do.</p>
+
+                    @if($errors->temporaryPassword->any())
+                        <ul class="rounded-xs border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300">
+                            @foreach($errors->temporaryPassword->all() as $message)
+                                <li>{{ $message }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <div>
+                        <x-input-label for="temp_current_password" value="Temporary password" />
+                        <x-text-input id="temp_current_password" name="current_password" ::type="show ? 'text' : 'password'" type="password" class="mt-1" autocomplete="current-password" required autofocus />
+                    </div>
+                    <div>
+                        <x-input-label for="temp_new_password" value="New password" />
+                        <x-text-input id="temp_new_password" name="password" ::type="show ? 'text' : 'password'" type="password" class="mt-1" autocomplete="new-password" required minlength="8" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">At least 8 characters and different from the temporary one.</p>
+                    </div>
+                    <div>
+                        <x-input-label for="temp_new_password_confirmation" value="Confirm new password" />
+                        <x-text-input id="temp_new_password_confirmation" name="password_confirmation" ::type="show ? 'text' : 'password'" type="password" class="mt-1" autocomplete="new-password" required minlength="8" />
+                    </div>
+                    <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300">
+                        <input type="checkbox" x-model="show" class="rounded-xs border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-800">
+                        Show passwords
+                    </label>
+
+                    <div class="flex items-center justify-between gap-2 pt-1">
+                        <button type="submit" form="temp-password-logout" class="btn-app btn-sm btn-outline-danger">Sign out</button>
+                        <button type="submit" class="btn-app btn-md btn-brand">Save new password</button>
+                    </div>
+                </form>
+                <form id="temp-password-logout" method="post" action="{{ route('logout') }}" class="hidden">@csrf</form>
+            </div>
+        </div>
+    @endif
+
     {{-- Live presence checkpoint alert: polls the server and pops a modal +
          browser notification the moment HR activates a checkpoint. The
          server-side deadline is the only official one; this is a heads-up. --}}
-    @if($user?->employee && ! request()->routeIs('my-checkpoints.show'))
+    @if($user?->employee && $user->employee->hasCheckpointAccess() && ! request()->routeIs('my-checkpoints.show'))
         <div x-data="checkpointAlert({{ (int) config('checkpoints.poll_seconds', 20) }})">
             <div x-show="cp && !dismissed" x-cloak class="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center" @keydown.escape.window="dismissed = true">
                 <div class="fixed inset-0 bg-gray-900/70 backdrop-blur-sm"></div>

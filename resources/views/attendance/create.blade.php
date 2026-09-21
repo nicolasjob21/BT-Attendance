@@ -26,7 +26,8 @@
             <img x-show="photo" :src="photo" alt="Captured selfie" class="absolute inset-0 h-full w-full object-cover">
             <canvas x-ref="canvas" class="hidden"></canvas>
 
-            <div x-show="cameraError && !photo" x-cloak class="absolute inset-0 flex items-center justify-center bg-slate-900 p-6 text-center">
+            {{-- Sits in the upper half so the time/location block at the bottom never covers it --}}
+            <div x-show="cameraError && !photo" x-cloak class="absolute inset-0 flex items-start justify-center bg-slate-900 px-6 pt-40 text-center sm:items-center sm:pt-6">
                 <div class="max-w-xs space-y-3">
                     <svg class="mx-auto h-10 w-10 text-slate-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M9.5 5.5H8a2 2 0 00-2 2v0M4 8.5V17a2 2 0 002 2h11.5M20 15.5V9a2 2 0 00-2-2h-1.5l-1-2h-5"/></svg>
                     <p class="text-sm text-slate-300" x-text="cameraError"></p>

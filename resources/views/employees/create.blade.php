@@ -10,9 +10,9 @@
             @csrf
             @include('employees._form')
 
-            <div class="flex items-center justify-between border-t border-gray-100 dark:border-slate-700 pt-5">
+            <div class="form-footer border-t border-gray-100 dark:border-slate-700 pt-5">
                 <p class="text-xs text-gray-500 dark:text-slate-400">This creates the employee record <span class="font-medium">and</span> their login account.</p>
-                <div class="flex gap-2">
+                <div class="form-footer-actions">
                     <a href="{{ route('employees.index') }}" class="btn-app btn-md btn-secondary">Cancel</a>
                     <button type="submit" class="btn-app btn-md btn-brand">Create account</button>
                 </div>

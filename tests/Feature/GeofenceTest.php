@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\SiteController;
 use App\Models\AttendanceLog;
 use App\Models\Employee;
 use App\Models\EmployeeProjectAssignment;
 use App\Models\Site;
 use App\Models\User;
+use App\Notifications\LocationExceptionFlagged;
 use App\Services\GeofenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -22,8 +24,11 @@ class GeofenceTest extends TestCase
     use RefreshDatabase;
 
     private Site $office;
+
     private Site $siteA;
+
     private Site $siteB;
+
     private Employee $tech;
 
     // A tiny (1x1 px) JPEG data URL so the selfie validation passes.
@@ -227,7 +232,7 @@ class GeofenceTest extends TestCase
 
         Notification::assertSentTo(
             User::where('email', 'hr@brite-tsi.com')->first(),
-            \App\Notifications\LocationExceptionFlagged::class,
+            LocationExceptionFlagged::class,
         );
     }
 
@@ -393,5 +398,19 @@ class GeofenceTest extends TestCase
             ->assertOk()
             ->assertSee('Project site assignment')
             ->assertSee($this->siteA->name);
+    }
+
+    public function test_google_maps_links_resolve_to_coordinates(): void
+    {
+        $c = SiteController::coordsFromUrl('https://www.google.com/maps/place/X/@14.5352,120.9816,17z/data=!3m1!4b1!4m6!3m5!8m2!3d14.5351818!4d120.9815994');
+        $this->assertSame([14.5351818, 120.9815994], $c);
+        $this->assertSame([14.6111, 121.0052], SiteController::coordsFromUrl('https://www.google.com/maps?q=14.6111,121.0052'));
+        $this->assertSame([14.61, 121.0], SiteController::coordsFromUrl('14.61, 121.00'));
+        $this->assertNull(SiteController::coordsFromUrl('https://www.google.com/maps/place/Nowhere'));
+
+        $hr = User::where('email', 'hr@brite-tsi.com')->firstOrFail();
+        $this->actingAs($hr)->getJson('/settings/sites/resolve-link?url=https://www.google.com/maps?q=14.6111,121.0052')
+            ->assertOk()->assertJson(['ok' => true, 'lat' => 14.6111, 'lng' => 121.0052]);
+        $this->actingAs($hr)->getJson('/settings/sites/resolve-link?url=not-a-link')->assertStatus(422);
     }
 }
