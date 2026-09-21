@@ -1,0 +1,38 @@
+<div class="grid gap-5 sm:grid-cols-2">
+    {% include "ui/field.html" with label="First name" name="first_name" value=v.first_name required=True error=errors.first_name %}
+    {% include "ui/field.html" with label="Last name" name="last_name" value=v.last_name required=True error=errors.last_name %}
+    {% include "ui/field.html" with label="Username (login)" name="username" value=v.username placeholder="brite-firstname" hint="Company prefix + first name, e.g. <code>brite-juan</code>. Leave blank to generate it automatically." error=errors.username attrs='autocapitalize="none" spellcheck="false"' %}
+    {% include "ui/field.html" with label="Email" name="email" type="email" value=v.email required=True error=errors.email %}
+    <div>
+        <label for="payout_method" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Salary payout</label>
+        <select id="payout_method" name="payout_method" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+            {% with cur=v.payout_method|default:"cash" %}
+            <option value="cash" {% if cur == 'cash' %}selected{% endif %}>Cash (payslip in envelope)</option>
+            <option value="card" {% if cur == 'card' %}selected{% endif %}>Card (direct to card)</option>
+            {% endwith %}
+        </select>
+        {% if errors.payout_method %}<p class="mt-1 text-sm text-rose-600">{{ errors.payout_method }}</p>{% endif %}
+    </div>
+    {% include "ui/field.html" with label="Card / account no." optional="card payout only" name="bank_account_no" value=v.bank_account_no error=errors.bank_account_no attrs='maxlength="40"' %}
+    {% include "ui/field.html" with label="Phone" optional="optional" name="phone" value=v.phone %}
+    {% include "ui/field.html" with label="Monthly salary (₱)" name="monthly_salary" type="number" step="0.01" min="0" value=v.monthly_salary required=True error=errors.monthly_salary %}
+    {% include "ui/field.html" with label="Date hired" optional="optional" name="date_hired" type="date" value=v.date_hired %}
+    <div>
+        <label for="status" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">Status</label>
+        <select id="status" name="status" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+            {% with cur=v.status|default:"active" %}
+            <option value="active" {% if cur == 'active' %}selected{% endif %}>Active</option>
+            <option value="inactive" {% if cur == 'inactive' %}selected{% endif %}>Inactive</option>
+            <option value="on_leave" {% if cur == 'on_leave' %}selected{% endif %}>On leave</option>
+            {% endwith %}
+        </select>
+    </div>
+    <div x-data="{ show: false }">
+        <label for="password" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-200">{% if employee %}Reset password{% else %}Temporary password{% endif %} <span class="text-gray-400 dark:text-slate-500">({% if employee %}leave blank to keep{% else %}blank = auto-generate{% endif %})</span></label>
+        <div class="flex gap-2">
+            <input :type="show ? 'text' : 'password'" id="password" name="password" x-ref="pw" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+            <button type="button" @click="$refs.pw.value = Math.random().toString(36).slice(-10); show = true" class="shrink-0 rounded-xs border border-gray-300 dark:border-slate-600 px-3 text-sm text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/60">Generate</button>
+        </div>
+        {% if errors.password %}<p class="mt-1 text-sm text-rose-600">{{ errors.password }}</p>{% endif %}
+    </div>
+</div>

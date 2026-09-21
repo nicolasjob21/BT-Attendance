@@ -1,0 +1,141 @@
+{% extends "layouts/app.html" %}
+{% block header %}Payroll{% endblock %}
+{% block content %}
+<div class="page space-y-5">
+    {% with st=pay_day.state %}
+    <div class="card flex flex-wrap items-center gap-x-6 gap-y-3 border-l-4 {% if st == 'overdue' %}border-l-rose-500{% elif st == 'due' %}border-l-amber-500{% elif st == 'computed' %}border-l-brand-500{% else %}border-l-gray-300 dark:border-l-slate-600{% endif %} px-5 py-4">
+        <div class="flex items-center gap-3">
+            <p class="eyebrow">Pay day</p>
+            <span class="badge {% if st == 'overdue' %}badge-danger{% elif st == 'due' %}badge-warn{% elif st == 'computed' %}badge-info{% else %}badge-neutral{% endif %}">{% if st != 'upcoming' %}<i class="dot {% if st == 'due' %}animate-pulse{% endif %}"></i>{% endif %}{{ pay_day.title }}</span>
+        </div>
+        <p class="basis-full text-sm text-gray-700 dark:text-slate-200 sm:min-w-0 sm:flex-1 sm:basis-auto">{{ pay_day.message }}</p>
+        {% if pay_day.action == 'run' and pay_day.period and not pay_day.period.is_closed and pay_day.period.id != selected.id %}
+            <form method="POST" action="{% url 'payroll.generate' pay_day.period.id %}" class="basis-full sm:ml-auto sm:basis-auto">{% csrf_token %}<button class="btn-app btn-sm btn-brand w-full sm:w-auto">Run payroll</button></form>
+        {% elif pay_day.action == 'release' and pay_day.period and pay_day.period.id != selected.id %}
+            <a href="{% url 'payroll.index' %}?period={{ pay_day.period.id }}" class="btn-app btn-sm btn-brand basis-full sm:ml-auto sm:basis-auto">Open {{ pay_day.period.short_label }}</a>
+        {% endif %}
+        <dl class="flex basis-full flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-gray-500 dark:text-slate-400">
+            <div class="flex items-center gap-2"><dt class="badge badge-muted">1st – 15th</dt><dd>paid on the <b>15th</b></dd></div>
+            <div class="flex items-center gap-2"><dt class="badge badge-muted">16th – last day</dt><dd>paid on the <b>last day of the month</b></dd></div>
+            <div>Everyone who runs payroll gets a reminder on the morning of pay day.</div>
+        </dl>
+    </div>
+    {% endwith %}
+
+    <div class="card p-4">
+        <div class="flex flex-wrap items-center gap-3">
+            <form method="GET" action="{% url 'payroll.index' %}" class="flex min-w-0 flex-wrap items-center gap-2">
+                <label for="period" class="text-sm text-gray-600 dark:text-slate-300">Period</label>
+                <select id="period" name="period" onchange="this.form.submit()" class="w-full min-w-0 max-w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 sm:w-auto">
+                    {% for p in periods %}<option value="{{ p.id }}" {% if selected and selected.id == p.id %}selected{% endif %}>{{ p.label }} ({% if p.is_first_half %}1–15{% else %}16–end{% endif %}) · pay {{ p.pay_date|dmd }}</option>{% empty %}<option value="">No periods yet</option>{% endfor %}
+                </select>
+                {% if selected %}
+                    {% if selected.is_released %}<span class="badge badge-success"><i class="dot"></i>Released</span><span class="text-xs text-gray-500 dark:text-slate-400">{{ selected.released_at|dt12 }} · {{ selected.release_timing }}{% if selected.released_by %} · by {{ selected.released_by.name }}{% endif %}</span>
+                    {% else %}{% status_badge selected.status %}{% endif %}
+                    {% if selected.generated_at and not selected.is_released %}<span class="text-xs text-gray-500 dark:text-slate-400">computed {{ selected.generated_at|dt12 }} · manually</span>{% endif %}
+                {% endif %}
+            </form>
+            <div class="grid basis-full grid-cols-2 gap-2 sm:ml-auto sm:flex sm:basis-auto sm:flex-wrap sm:items-center">
+                {% if selected and not selected.is_released %}
+                    {% if not selected.is_closed %}
+                        <form method="POST" action="{% url 'payroll.generate' selected.id %}" class="contents sm:block" onsubmit="return confirm('Compute payroll for all active employees in this period? Manually adjusted lines are kept.')">{% csrf_token %}<button class="btn-app btn-md w-full sm:w-auto {% if items %}btn-secondary{% else %}btn-brand{% endif %}">{% if items %}Recalculate{% else %}Run payroll{% endif %}</button></form>
+                    {% endif %}
+                    {% if can_edit and items %}
+                        {% url 'payroll.release' selected.id as a %}{% confirm_action a "Release this payroll?" "Confirm that salaries for "|add:selected.label|add:" have been paid out — "|add:by_card|stringformat:"s"|add:" by card, "|add:cash_count|stringformat:"s"|add:" in cash. The figures become final and every employee will see and can download their payslip immediately." "Release payroll" "brand" False "md" "primary" "w-full sm:w-auto" %}
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 sm:flex sm:flex-wrap sm:items-center dark:border-slate-700">
+            {% if selected and items %}
+                <div x-data="payslipSearch({{ search_rows|js }})" class="relative col-span-2 sm:col-span-1" @keydown.escape="close()">
+                    <label class="relative block">
+                        <span class="sr-only">Print an employee's payslip</span>
+                        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
+                        <input type="search" x-model="q" @focus="open = true" @input="open = true; cursor = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="pick()" placeholder="Print payslip: search employee…" autocomplete="off" class="w-full rounded-xs border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900/40 sm:w-72">
+                    </label>
+                    <div x-show="open" x-cloak @click.outside="close()" class="absolute left-0 z-20 mt-1 w-full overflow-hidden sm:w-80 rounded-xs border border-gray-200 bg-white text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        <ul class="max-h-64 overflow-y-auto py-1" role="listbox">
+                            <template x-for="(e, i) in matches()" :key="e.id">
+                                <li><a :href="e.url" target="_blank" @click="close()" @mouseenter="cursor = i" class="flex items-center justify-between gap-3 px-4 py-2 text-gray-700 dark:text-slate-200" :class="cursor === i ? 'bg-brand-50 dark:bg-brand-500/15' : ''" role="option">
+                                    <span class="min-w-0"><span class="block truncate font-medium text-gray-900 dark:text-slate-100" x-text="e.name"></span><span class="block text-xs text-gray-500 dark:text-slate-400" x-text="e.no"></span></span>
+                                    <span class="badge" :class="e.method === 'Card' ? 'badge-info' : 'badge-neutral'" x-text="e.method"></span></a></li>
+                            </template>
+                            <li x-show="matches().length === 0" class="px-4 py-3 text-gray-400 dark:text-slate-500">No employee matches "<span x-text="q"></span>" in this period.</li>
+                        </ul>
+                        <div class="border-t border-gray-100 px-4 py-2 text-xs text-gray-500 dark:border-slate-700 dark:text-slate-400">Print a batch instead:
+                            <a href="{% url 'payroll.print' selected.id %}?method=cash" target="_blank" class="font-medium text-brand-700 hover:underline dark:text-brand-300">cash ({{ cash_count }})</a> ·
+                            <a href="{% url 'payroll.print' selected.id %}?method=card" target="_blank" class="font-medium text-brand-700 hover:underline dark:text-brand-300">card ({{ by_card }})</a> ·
+                            <a href="{% url 'payroll.print' selected.id %}" target="_blank" class="font-medium text-brand-700 hover:underline dark:text-brand-300">everyone ({{ items|length }})</a></div>
+                    </div>
+                </div>
+                <a href="{% url 'payroll.export' selected.id %}" class="btn-app btn-md btn-secondary w-full sm:w-auto">Download XLSX</a>
+            {% endif %}
+            {% if can.manage_payroll_rates %}<a href="{% url 'payroll.rates' %}" class="btn-app btn-md btn-secondary w-full sm:w-auto">Payroll rates</a>{% endif %}
+            <a href="{% url 'payroll.deductions' %}" class="btn-app btn-md btn-secondary col-span-2 w-full sm:col-auto sm:w-auto">Loans &amp; missing items</a>
+            <form method="POST" action="{% url 'payroll.periods.create' %}" class="col-span-2 sm:col-auto sm:ml-auto">{% csrf_token %}<button class="btn-app btn-md btn-secondary w-full sm:w-auto">+ Next period</button></form>
+        </div>
+    </div>
+
+    {% if items %}
+    <div class="stat-strip">
+        {% stat "Employees" items|length by_card|stringformat:"s"|add:" by card · "|add:cash_count|stringformat:"s"|add:" in cash" %}
+        {% stat "Total gross" totals.gross|money %}
+        {% stat "Total deductions" totals.deductions|money None "danger" %}
+        {% stat "Total net" totals.net|money "what actually goes out" "brand" %}
+    </div>
+    <div class="grid gap-4 lg:grid-cols-2">
+        <div class="card p-5">
+            <div class="flex items-center justify-between text-sm"><span class="font-semibold text-emerald-600 dark:text-emerald-400">Earnings — {{ kept_pct }}% kept as net</span><span class="tabular-nums font-semibold">{{ totals.gross|money }}</span></div>
+            <div class="mt-2 flex h-2.5 overflow-hidden bg-gray-200 dark:bg-slate-700">{% for e in earn %}<div class="{{ e.color }}" style="width: {{ e.pct }}%"></div>{% endfor %}</div>
+            <ul class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-slate-200">{% for e in earn %}<li class="flex justify-between"><span>{{ e.label }}</span><span class="tabular-nums">{{ e.pct }}%</span></li>{% endfor %}</ul>
+        </div>
+        <div class="card p-5">
+            <div class="flex items-center justify-between text-sm"><span class="font-semibold text-accent-600 dark:text-accent-400">Deductions — {{ ded_pct }}% of gross</span><span class="tabular-nums font-semibold">{{ totals.deductions|money }}</span></div>
+            <div class="mt-2 flex h-2.5 overflow-hidden bg-gray-200 dark:bg-slate-700">{% for d in ded %}<div class="{{ d.color }}" style="width: {{ d.pct }}%"></div>{% endfor %}</div>
+            <ul class="mt-2 grid gap-x-4 gap-y-1 text-xs text-gray-700 sm:grid-cols-2 dark:text-slate-200">{% for d in ded %}<li class="flex justify-between gap-2"><span>{{ d.label }}</span><span class="tabular-nums whitespace-nowrap">{{ d.pct }}% <span class="text-gray-400 dark:text-slate-500">· {{ d.share }}% of ded.</span></span></li>{% endfor %}</ul>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr><th class="px-4 py-3">Employee</th><th class="px-4 py-3">Payout</th><th class="px-4 py-3 text-right">Basic</th><th class="px-4 py-3 text-right">OT</th><th class="px-4 py-3 text-right">Allowances</th><th class="px-4 py-3 text-right">Gross</th><th class="px-4 py-3 text-right">Deductions</th><th class="px-4 py-3 text-right">Net pay</th><th class="px-4 py-3 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700 tabular-nums">
+                    {% for item in items %}
+                    <tr>
+                        <td class="cell-head px-4 py-3"><div class="font-medium text-gray-900 dark:text-slate-100">{{ item.employee.full_name }}</div>{% if item.is_adjusted %}<span class="badge badge-warn mt-1" title="Edited by {{ item.adjusted_by.name }} · {{ item.adjusted_at|dt12 }}{% if item.remarks %} · {{ item.remarks }}{% endif %}">Adjusted</span>{% endif %}</td>
+                        <td data-label="Payout" class="px-4 py-3"><span class="badge {% if item.employee.pays_by_card %}badge-info{% else %}badge-neutral{% endif %}">{% if item.employee.pays_by_card %}Card{% else %}Cash{% endif %}</span></td>
+                        <td data-label="Basic" class="px-4 py-3 text-right text-gray-700 dark:text-slate-200">{{ item.basic_pay|n2 }}</td>
+                        <td data-label="OT" class="px-4 py-3 text-right text-gray-700 dark:text-slate-200">{{ item.overtime_pay|n2 }}</td>
+                        <td data-label="Allowances" class="px-4 py-3 text-right text-gray-700 dark:text-slate-200">{{ item.allowances|n2 }}</td>
+                        <td data-label="Gross" class="px-4 py-3 text-right text-gray-900 dark:text-slate-100">{{ item.gross_pay|n2 }}</td>
+                        <td data-label="Deductions" class="px-4 py-3 text-right text-accent-600 dark:text-accent-400">{{ item.total_deductions|n2 }}</td>
+                        <td data-label="Net pay" class="px-4 py-3 text-right font-semibold {% if item.net_pay < 0 %}text-rose-600 dark:text-rose-400{% else %}text-gray-900 dark:text-slate-100{% endif %}">{{ item.net_pay|money }}</td>
+                        <td data-label="Actions" class="px-4 py-3 whitespace-nowrap"><div class="row-actions"><a href="{% url 'payroll.show' item.id %}">Payslip</a>{% if can_edit and not selected.is_closed %}<a href="{% url 'payroll.lines.edit' item.id %}" class="is-primary">Edit</a>{% endif %}</div></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="9" class="px-4 py-10 text-center text-gray-400 dark:text-slate-500">{% if selected %}No payroll computed for this period yet — click <span class="font-medium">Run payroll</span>.{% else %}No payroll periods yet — click <span class="font-medium">+ Next period</span>.{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function payslipSearch(items) {
+    return {
+        items, q: '', open: false, cursor: 0,
+        matches() { const q = this.q.trim().toLowerCase(); const words = q.split(/\s+/).filter(Boolean); const list = words.length ? this.items.filter(e => { const hay = (e.name + ' ' + e.no).toLowerCase(); return words.every(w => hay.includes(w)); }) : this.items; return list.slice(0, 8); },
+        move(d) { const n = this.matches().length; if (!n) return; this.open = true; this.cursor = (this.cursor + d + n) % n; },
+        pick() { const e = this.matches()[this.cursor]; if (e) { window.open(e.url, '_blank'); this.close(); } },
+        close() { this.open = false; },
+    };
+}
+</script>
+{% endblock %}

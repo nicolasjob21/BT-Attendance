@@ -1,0 +1,5 @@
+{% if href %}<a href="{{ href }}" class="card card-hover flex min-w-0 flex-col px-4 py-3.5 {{ extra }}">{% else %}<div class="card flex min-w-0 flex-col px-4 py-3.5 {{ extra }}">{% endif %}
+    <p class="eyebrow text-[10px]">{{ label }}</p>
+    <p class="mt-1 break-words font-display text-xl font-bold tabular-nums leading-tight sm:text-2xl {{ tone_class }}">{{ value }}</p>
+    {% if hint %}<p class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-slate-400">{{ hint }}</p>{% endif %}
+{% if href %}</a>{% else %}</div>{% endif %}

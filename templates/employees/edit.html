@@ -1,0 +1,70 @@
+{% extends "layouts/app.html" %}
+{% block header %}Edit Employee{% endblock %}
+{% block content %}
+<div class="page-form space-y-4">
+    <form method="POST" action="{% url 'employees.update' employee.id %}" class="space-y-6 card p-6">
+        {% csrf_token %}
+        {% include "employees/_form.html" %}
+        <div class="form-footer border-t border-gray-100 dark:border-slate-700 pt-5">
+            <span class="text-xs text-gray-500 dark:text-slate-400">{{ employee.employee_no }}</span>
+            <div class="form-footer-actions"><a href="{% url 'employees.index' %}" class="btn-app btn-md btn-secondary">Cancel</a><button type="submit" class="btn-app btn-md btn-brand">Save changes</button></div>
+        </div>
+    </form>
+
+    <div class="card p-6 space-y-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="text-base font-semibold text-gray-900 dark:text-slate-100">Project site assignment</h2>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-slate-400">Where this employee is currently deployed. They can still clock in at the main office; punches elsewhere are recorded as an authorized alternate location.</p>
+            </div>
+            <div class="text-sm">
+                {% if active_assignment %}
+                    <span class="badge badge-info"><svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg> {{ active_assignment.site.name }}</span>
+                    <span class="ml-1 text-xs text-gray-500 dark:text-slate-400">since {{ active_assignment.start_date|dmdy }}{% if active_assignment.end_date %} · until {{ active_assignment.end_date|dmdy }}{% endif %}</span>
+                {% else %}<span class="badge badge-neutral">Office / unassigned</span>{% endif %}
+            </div>
+        </div>
+        <form method="POST" action="{% url 'employees.assignments.store' employee.id %}" class="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            {% csrf_token %}
+            <div>
+                <label for="site_id" class="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-300">{% if active_assignment %}Move to{% else %}Assign to{% endif %} project site</label>
+                <select id="site_id" name="site_id" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                    <option value="">— Choose an active project site —</option>
+                    {% for s in project_sites %}{% if not active_assignment or s.id != active_assignment.site_id %}<option value="{{ s.id }}">{{ s.name }}{% if s.type == 'temporary' %} (temporary){% endif %}</option>{% endif %}{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="start_date" class="mb-1 block text-xs font-medium text-gray-600 dark:text-slate-300">From</label>
+                <input type="date" id="start_date" name="start_date" value="{{ today }}" required class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500 dark:[color-scheme:dark]">
+            </div>
+            <button class="btn-app btn-md btn-dark">{% if active_assignment %}Reassign{% else %}Assign{% endif %}</button>
+            <div class="sm:col-span-3"><input type="text" name="assignment_notes" maxlength="500" placeholder="Notes (optional) — e.g. site foreman, expected 3 weeks" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500"></div>
+            {% if not project_sites %}<p class="sm:col-span-3 text-xs text-amber-700 dark:text-amber-300">No active project sites. <a href="{% url 'sites.create' %}" class="underline">Add one</a> first.</p>{% endif %}
+        </form>
+        {% if active_assignment %}
+            <form method="POST" action="{% url 'employees.assignments.end' employee.id active_assignment.id %}" onsubmit="return confirm('End the assignment to {{ active_assignment.site.name|escapejs }} as of today? The employee reverts to office / unassigned.')">
+                {% csrf_token %}<input type="hidden" name="status" value="ended">
+                <button class="text-sm font-medium text-rose-600 hover:underline dark:text-rose-300">End current assignment</button>
+            </form>
+        {% endif %}
+        {% if assignments %}
+            <div class="border-t border-gray-100 pt-4 dark:border-slate-700">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Assignment history</p>
+                <ul class="divide-y divide-gray-100 text-sm dark:divide-slate-700">
+                    {% for a in assignments %}
+                    <li class="flex flex-wrap items-center justify-between gap-2 py-2">
+                        <div><span class="font-medium text-gray-900 dark:text-slate-100">{{ a.site.name }}</span> <span class="ml-1 text-xs text-gray-500 dark:text-slate-400">{{ a.start_date|dmdy }} → {% if a.end_date %}{{ a.end_date|dmdy }}{% else %}open{% endif %}</span>{% if a.assignment_notes %}<div class="text-xs text-gray-500 dark:text-slate-400">{{ a.assignment_notes }}</div>{% endif %}</div>
+                        <div class="flex items-center gap-2">{% status_badge a.status %}{% if a.created_by %}<span class="text-[11px] text-gray-400 dark:text-slate-500">by {{ a.created_by.name }}</span>{% endif %}</div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    </div>
+
+    <form method="POST" action="{% url 'employees.status' employee.id %}" onsubmit="return confirm('{% if employee.status == 'active' %}Deactivate{% else %}Reactivate{% endif %} this employee?')">
+        {% csrf_token %}
+        <button class="text-sm font-medium {% if employee.status == 'active' %}text-rose-600{% else %}text-emerald-600{% endif %} hover:underline">{% if employee.status == 'active' %}Deactivate this account{% else %}Reactivate this account{% endif %}</button>
+    </form>
+</div>
+{% endblock %}

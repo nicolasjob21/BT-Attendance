@@ -1,0 +1,301 @@
+{% extends "layouts/app.html" %}
+{% block header %}Presence Checkpoint{% endblock %}
+{% block content %}
+<div x-data="checkpointCapture()" class="sm:mx-auto sm:max-w-3xl">
+        <form method="POST" action="{% url 'my-checkpoints.submit' checkpoint.id %}" x-ref="form" @submit="submitting = true"
+              class="relative isolate flex h-dvh flex-col overflow-hidden bg-black text-white sm:h-[calc(100dvh-7.5rem)] sm:min-h-[640px] sm:rounded-2xl sm:shadow-2xl sm:ring-1 sm:ring-white/10">
+            {% csrf_token %}
+            <input type="hidden" name="latitude" x-model="lat">
+            <input type="hidden" name="longitude" x-model="lng">
+            <input type="hidden" name="gps_accuracy" x-model="accuracy">
+            <input type="hidden" name="photo" x-model="photo">
+            <input type="hidden" name="client_timestamp" x-model="clientTs">
+            <input type="hidden" name="network_status" :value="wasOffline ? 'offline_synced' : 'online'">
+
+            
+            <video x-ref="video" x-show="!photo" autoplay playsinline muted @loadedmetadata="fitVideo()" class="absolute inset-0 h-full w-full" :class="fit"></video>
+            <img x-show="photo" :src="photo" alt="Captured photo" class="absolute inset-0 h-full w-full" :class="fit">
+            <canvas x-ref="canvas" class="hidden"></canvas>
+
+            <div x-show="cameraError && !photo" x-cloak class="absolute inset-0 flex items-center justify-center bg-slate-900 p-6 text-center">
+                <div class="max-w-xs space-y-3">
+                    <p class="text-sm text-white/80" x-text="cameraError"></p>
+                    <button type="button" @click="startCamera()" class="rounded-full border border-white/30 px-4 py-1.5 text-sm font-semibold hover:bg-white/10">Retry camera</button>
+                    <button type="button" @click="reportIssue('camera_denied')" class="block w-full rounded-full border border-white/30 px-4 py-1.5 text-center text-sm font-semibold hover:bg-white/10">Report: camera blocked</button>
+                </div>
+            </div>
+
+            
+            <div class="relative z-20 flex items-center justify-between gap-2 px-3 pt-3">
+                <a href="{% url 'my-checkpoints.index' %}" aria-label="Back" class="grid h-9 w-9 place-items-center rounded-full bg-black/50 backdrop-blur hover:bg-black/70">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                </a>
+                <div class="flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 backdrop-blur ring-1 ring-white/15" :class="secondsLeft <= 60 ? 'ring-rose-400/70' : ''">
+                    <svg class="h-4 w-4" :class="secondsLeft <= 60 ? 'text-rose-300 animate-pulse' : 'text-accent-300'" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path stroke-linecap="round" d="M12 8v4l2.5 2"/></svg>
+                    <span class="font-display text-base font-extrabold tabular-nums" :class="secondsLeft <= 60 ? 'text-rose-300' : ''" x-text="countdown()"></span>
+                </div>
+                <button type="button" @click="mapExpanded = !mapExpanded" :title="verificationText()"
+                        class="flex h-9 items-center gap-1.5 rounded-full bg-black/50 px-2.5 text-xs font-semibold backdrop-blur hover:bg-black/70">
+                    <span class="h-2 w-2 rounded-full" :class="dotColor()"></span>
+                    <span class="hidden sm:inline" x-text="shortStatus()"></span>
+                    <svg class="h-4 w-4 sm:hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
+                </button>
+            </div>
+
+            
+            <div class="relative z-20 mt-2 px-3 transition-all duration-300" :class="mapExpanded ? 'w-full' : 'w-36'">
+                <div class="overflow-hidden rounded-lg bg-slate-800 shadow-lg ring-2 ring-white/80 transition-all duration-300" :class="mapExpanded ? 'h-64' : 'h-28'">
+                    <div x-ref="map" class="h-full w-full" @click="if (!mapExpanded) { mapExpanded = true; $nextTick(() => refreshMap()); }"></div>
+                </div>
+                <div class="pointer-events-none absolute inset-x-3 bottom-0 flex items-end justify-between p-1.5">
+                    <span class="rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider backdrop-blur" :class="textColor()" x-text="mapCaption()"></span>
+                    <button type="button" x-show="mapExpanded" @click.stop="mapExpanded = false; $nextTick(() => refreshMap())" class="pointer-events-auto rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">Close</button>
+                </div>
+            </div>
+
+            
+            <div x-show="!online" x-cloak class="relative z-20 mx-3 mt-2 rounded-lg bg-amber-500/90 px-3 py-1.5 text-[11px] font-semibold text-black">
+                You're offline. Take the photo now — it will be submitted automatically when the connection returns.
+            </div>
+
+            <div class="flex-1"></div>
+
+            
+            <div class="relative z-20 space-y-2 px-4 pb-2" style="text-shadow: 0 1px 3px rgba(0,0,0,.8)">
+                <div class="rounded-lg bg-accent-500/95 px-3 py-2 shadow-lg" style="text-shadow:none">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-white/80">Photo instruction</p>
+                    <p class="font-display text-base font-bold leading-tight text-white">{{ campaign.instruction }}</p>
+                </div>
+                <div class="border-l-[3px] border-brand-300 pl-2 text-xs leading-snug">
+                    <p class="font-semibold">{{ employee_name }} · {{ checkpoint.project_site.name }}</p>
+                    <p class="text-white/90"><span x-text="clockDate"></span> · <span x-text="clockTime"></span> · {{ checkpoint.reference }}</p>
+                    <p class="text-[10px] text-white/70">Window {{ campaign.starts_at|t12 }} – {{ campaign.expires_at|t12 }} (same for everyone)</p>
+                    <p class="text-[10px] text-white/60" x-show="lat"><span x-text="lat"></span>, <span x-text="lng"></span><span x-show="accuracy !== ''"> · ±<span x-text="accuracy"></span> m</span></p>
+                    <p class="mt-0.5 flex items-center gap-1 text-[11px] font-medium" :class="textColor()">
+                        <svg class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>
+                        <span x-text="verificationText()"></span>
+                    </p>
+                </div>
+
+                <div x-show="isException()" x-cloak class="rounded-lg bg-slate-900/90 p-2.5 text-[11px] text-white shadow-xl ring-1 ring-accent-400/70 backdrop-blur">
+                    <p class="text-xs font-semibold text-accent-300" x-text="exceptionTitle()"></p>
+                    <p class="text-white/80">You can still submit — HR will review it. Try “Retry GPS” first for a better fix.</p>
+                    <div class="mt-1.5 flex flex-wrap gap-2">
+                        <button type="button" @click="getLocation()" class="rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Retry GPS</button>
+                        <button type="button" x-show="locStatus === 'gps_unavailable'" @click="reportIssue('gps_unavailable')" class="rounded-full border border-white/30 px-3 py-1 font-semibold hover:bg-white/10">Report: no GPS</button>
+                    </div>
+                </div>
+
+                {% if paused %}
+                    <p class="rounded-lg bg-amber-500/90 px-3 py-2 text-xs font-semibold text-black">HR has paused this checkpoint. The countdown is frozen — wait for it to resume.</p>
+                {% endif %}
+                {% if attempt_error %}<p class="rounded-lg bg-amber-500/90 px-3 py-2 text-xs font-semibold text-black">{{ attempt_error }} You can retry while the checkpoint is open.</p>{% endif %}
+                <p x-show="expired" x-cloak class="rounded-lg bg-rose-600/90 px-3 py-2 text-xs font-medium">This checkpoint has expired. You can add an explanation for HR from your checkpoint history.</p>
+            </div>
+
+            
+            <div class="relative z-20 bg-black/35 pt-1.5 backdrop-blur-sm" style="padding-bottom: max(env(safe-area-inset-bottom), 0.375rem)">
+                <p class="min-h-[14px] text-center text-[10px] transition-colors" :class="canSubmit() ? 'text-emerald-300' : 'text-white/60'" x-text="submitHint()"></p>
+                <div class="mt-0.5 grid grid-cols-3 items-center px-6">
+                    <div class="flex justify-start">
+                        <button type="button" x-show="photo" @click="retake()" class="flex flex-col items-center gap-0.5 text-[10px] font-medium text-white/80 hover:text-white">
+                            <img :src="photo" alt="" class="h-10 w-10 rounded-md object-cover ring-2 ring-white/70">
+                            Retake
+                        </button>
+                        <button type="button" x-show="!photo" @click="flipCamera()" class="flex flex-col items-center gap-0.5 text-[10px] font-medium text-white/80 hover:text-white">
+                            <span class="grid h-10 w-10 place-items-center rounded-full bg-white/10 ring-1 ring-white/20">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 006 5.3M4 15a8 8 0 0014 3.7"/></svg>
+                            </span>
+                            Flip
+                        </button>
+                    </div>
+                    <div class="flex justify-center">
+                        <button type="button" x-show="!photo" @click="capture()" :disabled="!!cameraError || expired" aria-label="Capture photo"
+                                class="grid h-16 w-16 place-items-center rounded-full border-4 border-white bg-transparent transition active:scale-95 disabled:opacity-40">
+                            <span class="h-12 w-12 rounded-full bg-white/90"></span>
+                        </button>
+                        <button type="submit" x-show="photo" x-cloak :disabled="submitting || !canSubmit()"
+                                class="grid h-16 w-16 place-items-center rounded-full border-4 border-white bg-linear-to-br from-brand-500 to-accent-500 shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60">
+                            <svg x-show="!submitting" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            <svg x-show="submitting" class="h-6 w-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                        </button>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="button" @click="recenter()" :disabled="!lat" class="flex flex-col items-center gap-0.5 text-[10px] font-medium text-white/80 hover:text-white disabled:opacity-40">
+                            <span class="grid h-10 w-10 place-items-center rounded-full bg-white/10 ring-1 ring-white/20">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>
+                            </span>
+                            Locate
+                        </button>
+                    </div>
+                </div>
+                <p class="mt-0.5 text-center font-display text-xs font-bold" x-text="photo ? 'Submit Checkpoint' : 'Take live photo'"></p>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+{% block scripts %}
+<script>
+        function checkpointCapture() {
+            return {
+                site: {{ site_js|js }},
+                minAccuracy: {{ min_accuracy }},
+                // Server-authoritative countdown: offset = server now − device now.
+                expiresAt: new Date('{{ expires_at }}').getTime(),
+                offset: new Date('{{ server_now }}').getTime() - Date.now(),
+                secondsLeft: 0, expired: false, paused: {% if paused %}true{% else %}false{% endif %},
+                issueUrl: '{% url 'my-checkpoints.issue' checkpoint.id %}', csrf: '{{ csrf_token }}',
+
+                lat: '', lng: '', accuracy: '', photo: '', clientTs: '',
+                stream: null, cameraError: '', facing: 'environment', submitting: false, mapExpanded: false, fit: 'object-contain',
+                clockDate: '', clockTime: '', online: navigator.onLine, wasOffline: !navigator.onLine, pendingSubmit: false,
+                locStatus: 'checking', geoError: '', distance: null, inside: false,
+                map: null, userMarker: null, accCircle: null, siteCircle: null, watchId: null, centeredOnce: false, checkTimer: null,
+
+                init() {
+                    this.tick(); setInterval(() => this.tick(), 1000);
+                    this.initMap();
+                    this.getLocation();
+                    this.startCamera();
+                    window.addEventListener('online', () => { this.online = true; if (this.pendingSubmit && this.canSubmit()) { this.submitting = true; this.$refs.form.submit(); } });
+                    window.addEventListener('offline', () => { this.online = false; this.wasOffline = true; });
+                    if (this.paused) setInterval(() => location.reload(), 15000);
+                },
+
+                tick() {
+                    if (this.paused) return;
+                    const now = Date.now() + this.offset;
+                    this.secondsLeft = Math.max(0, Math.floor((this.expiresAt - now) / 1000));
+                    if (this.secondsLeft === 0 && !this.expired) { this.expired = true; setTimeout(() => location.reload(), 3000); }
+                    const d = new Date(now);
+                    this.clockDate = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Manila' });
+                    this.clockTime = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila' });
+                },
+                countdown() { return this.paused ? 'PAUSED' : Math.floor(this.secondsLeft / 60) + ':' + String(this.secondsLeft % 60).padStart(2, '0'); },
+
+                initMap() {
+                    const s = this.site;
+                    this.map = L.map(this.$refs.map, { zoomControl: false, attributionControl: false }).setView([+s.latitude, +s.longitude], 16);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(this.map);
+                    this.siteCircle = L.circle([+s.latitude, +s.longitude], { radius: +s.geofence_radius_m, color: '#ea6c44', weight: 2, fillColor: '#f7a88a', fillOpacity: 0.2 }).addTo(this.map);
+                    L.marker([+s.latitude, +s.longitude], { icon: this.icon('#ea6c44', 12), keyboard: false }).addTo(this.map).bindTooltip(s.name, { direction: 'top', offset: [0, -6] });
+                    setTimeout(() => this.map.invalidateSize(), 200);
+                },
+                refreshMap() { setTimeout(() => { this.map.invalidateSize(); if (this.lat) this.map.setView([+this.lat, +this.lng], this.mapExpanded ? 17 : 16); }, 320); },
+                icon(color, size) {
+                    return L.divIcon({ className: '', html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+                },
+
+                getLocation() {
+                    this.geoError = '';
+                    if (!navigator.geolocation) { this.locStatus = 'gps_unavailable'; this.geoError = 'Geolocation is not supported.'; return; }
+                    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') { this.locStatus = 'gps_unavailable'; this.geoError = 'Location needs HTTPS.'; return; }
+                    this.locStatus = 'checking';
+                    clearTimeout(this.checkTimer);
+                    this.checkTimer = setTimeout(() => { if (this.locStatus === 'checking' && !this.lat) { this.locStatus = 'gps_unavailable'; this.geoError = 'No location fix yet — allow location access or retry.'; } }, 25000);
+                    if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
+                    this.watchId = navigator.geolocation.watchPosition(
+                        (pos) => this.setLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+                        (err) => { if (this.lat) return; this.locStatus = 'gps_unavailable'; this.geoError = 'Location unavailable: ' + err.message + '.'; },
+                        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+                    );
+                },
+                setLocation(lat, lng, acc) {
+                    if (this.photo && this.lat) return; // evidence frozen at capture
+                    this.lat = (+lat).toFixed(7); this.lng = (+lng).toFixed(7); this.accuracy = acc != null ? Math.round(acc) : '';
+                    const pt = [lat, lng];
+                    if (!this.userMarker) this.userMarker = L.marker(pt, { draggable: false, keyboard: false, icon: this.icon('#2563eb', 18) }).addTo(this.map); else this.userMarker.setLatLng(pt);
+                    if (acc != null) { if (!this.accCircle) this.accCircle = L.circle(pt, { radius: acc, color: '#2563eb', weight: 1, fillColor: '#93c5fd', fillOpacity: 0.15 }).addTo(this.map); else this.accCircle.setLatLng(pt).setRadius(acc); }
+                    this.evaluate(lat, lng, acc);
+                    if (!this.centeredOnce) { this.centeredOnce = true; this.map.fitBounds(L.featureGroup([this.siteCircle, this.userMarker]).getBounds().pad(0.3)); }
+                },
+                distanceMeters(lat1, lng1, lat2, lng2) {
+                    const R = 6371000, rad = Math.PI / 180, dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+                    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+                    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+                },
+                // Preview only — the server recomputes distance and geofence.
+                evaluate(lat, lng, acc) {
+                    this.distance = Math.round(this.distanceMeters(lat, lng, +this.site.latitude, +this.site.longitude));
+                    this.inside = this.distance <= +this.site.geofence_radius_m;
+                    if (acc != null && acc > this.minAccuracy) this.locStatus = 'low_accuracy';
+                    else this.locStatus = this.inside ? 'verified_location' : 'outside_authorized_area';
+                },
+                isException() { return ['outside_authorized_area', 'low_accuracy', 'gps_unavailable'].includes(this.locStatus); },
+
+                verificationText() {
+                    switch (this.locStatus) {
+                        case 'verified_location': return 'Inside the site geofence · ' + this.distance + ' m from centre';
+                        case 'outside_authorized_area': return 'Outside the site geofence · ' + this.distance + ' m away';
+                        case 'low_accuracy': return 'Low GPS accuracy (±' + this.accuracy + ' m) · ' + this.distance + ' m from site';
+                        case 'gps_unavailable': return this.geoError || 'Location not available';
+                    }
+                    return 'Checking location…';
+                },
+                shortStatus() { return { checking: 'Locating', verified_location: 'Inside', outside_authorized_area: 'Outside', low_accuracy: 'Low accuracy', gps_unavailable: 'No GPS' }[this.locStatus] || ''; },
+                mapCaption() { if (this.locStatus === 'checking') return 'Locating…'; if (this.locStatus === 'gps_unavailable') return 'No GPS'; return (this.inside ? 'Inside · ' : 'Outside · ') + this.distance + ' m'; },
+                textColor() { return { verified_location: 'text-emerald-300', outside_authorized_area: 'text-rose-300', low_accuracy: 'text-accent-300', gps_unavailable: 'text-rose-300' }[this.locStatus] || 'text-white/70'; },
+                dotColor() { return { verified_location: 'bg-emerald-400', outside_authorized_area: 'bg-rose-400', gps_unavailable: 'bg-rose-400', low_accuracy: 'bg-accent-400' }[this.locStatus] || 'bg-white/60 animate-pulse'; },
+                exceptionTitle() {
+                    if (this.locStatus === 'gps_unavailable') return 'We could not get your location.';
+                    if (this.locStatus === 'low_accuracy') return 'GPS reading is not accurate enough to confirm the site.';
+                    return 'You appear to be outside the project site geofence.';
+                },
+                submitHint() {
+                    if (this.expired) return 'Checkpoint expired.';
+                    if (this.paused) return 'Paused by HR.';
+                    if (this.submitting) return 'Submitting…';
+                    if (!this.photo) return this.cameraError ? 'Camera unavailable.' : 'Photograph: ' + '{{ campaign.instruction|escapejs }}';
+                    if (!this.online) return 'Offline — will submit when back online.';
+                    if (this.locStatus === 'checking') return 'Waiting for your location…';
+                    return this.isException() ? 'Will be flagged for HR review — tap to submit.' : 'Looks good — tap to submit.';
+                },
+                recenter() { if (this.lat) this.map.setView([+this.lat, +this.lng], this.mapExpanded ? 18 : 17); },
+                fitVideo() {
+                    const v = this.$refs.video, stage = v.parentElement; if (!v.videoWidth || !stage) return;
+                    const ratio = (v.videoWidth / v.videoHeight) / (stage.clientWidth / stage.clientHeight);
+                    this.fit = (ratio > 0.85 && ratio < 1.18) ? 'object-cover' : 'object-contain';
+                },
+                async startCamera() {
+                    this.cameraError = '';
+                    const stage = this.$refs.video.parentElement, portrait = stage.clientHeight > stage.clientWidth;
+                    const video = { facingMode: this.facing, width: { ideal: portrait ? 1080 : 1280 }, height: { ideal: portrait ? 1440 : 720 } };
+                    try {
+                        this.stopCamera();
+                        this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+                        this.$refs.video.srcObject = this.stream;
+                    } catch (e) {
+                        if (this.facing === 'environment') { this.facing = 'user'; return this.startCamera(); }
+                        this.cameraError = 'Camera unavailable: ' + e.message + '. On production this requires HTTPS.';
+                    }
+                },
+                stopCamera() { if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; } },
+                flipCamera() { this.facing = this.facing === 'environment' ? 'user' : 'environment'; this.startCamera(); },
+                // Live capture only: the canvas is filled from the <video> stream, never from a file input.
+                capture() {
+                    const video = this.$refs.video;
+                    if (!video || !video.videoWidth) { this.cameraError = 'Camera not ready yet.'; return; }
+                    const canvas = this.$refs.canvas; canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    this.photo = canvas.toDataURL('image/jpeg', 0.8);
+                    this.clientTs = new Date().toISOString();
+                    this.stopCamera();
+                    if (!this.online) this.pendingSubmit = true;
+                },
+                retake() { this.photo = ''; this.clientTs = ''; this.pendingSubmit = false; this.startCamera(); },
+                // Tell HR about a device problem without leaving the page.
+                async reportIssue(issue) {
+                    try {
+                        await fetch(this.issueUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': this.csrf }, body: JSON.stringify({ issue }) });
+                        this.geoError = 'Reported to HR. Keep trying if you can.';
+                    } catch (e) { this.geoError = 'Could not send the report (offline?).'; }
+                },
+                canSubmit() {
+                    if (!this.photo || this.expired || this.paused || !this.online) return false;
+                    if (this.locStatus === 'checking') return false;
+                    return true; // exceptions are allowed through and flagged server-side
+                },
+            };
+        }
+    </script>
+{% endblock %}

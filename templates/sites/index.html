@@ -1,0 +1,84 @@
+{% extends "layouts/app.html" %}
+{% block header %}Locations{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <form method="GET" action="{% url 'sites.index' %}" class="flex flex-wrap items-center gap-2">
+            <select name="status" onchange="this.form.submit()" class="rounded-xs border-gray-300 dark:border-slate-600 text-sm focus:border-brand-500 focus:ring-brand-500">
+                <option value="">All statuses</option>
+                <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactive</option>
+                <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+            </select>
+            {% if status %}<a href="{% url 'sites.index' %}" class="text-sm text-gray-500 dark:text-slate-400 hover:underline">Clear</a>{% endif %}
+        </form>
+        <a href="{% url 'sites.create' %}" class="btn-app btn-md btn-brand">+ Add Location</a>
+    </div>
+    <div class="stat-strip">
+        {% stat "Live project sites" stats.live "plus the head office, always open" "brand" %}
+        {% stat "Employees deployed" stats.deployed "currently assigned to a project" %}
+        {% if stats.ending %}{% stat "Ending within 14 days" stats.ending "extend or mark completed" "warn" %}{% else %}{% stat "Ending within 14 days" stats.ending "none due" "muted" %}{% endif %}
+        {% stat "Finished / paused" stats.finished "kept so past attendance keeps its place" %}
+    </div>
+    <p class="text-xs text-gray-500 dark:text-slate-400">Employees may clock in at <strong>any active</strong> location — the main office plus every live project site. Finished projects should be marked <em>completed</em>, not deleted, so past attendance keeps its location.</p>
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr class="whitespace-nowrap"><th class="px-4 py-3">Location</th><th class="px-4 py-3">Type</th><th class="px-4 py-3">Geofence</th><th class="px-4 py-3">Window</th><th class="px-4 py-3 text-center">Assigned</th><th class="px-4 py-3">Status</th><th class="px-4 py-3 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for site in sites %}
+                    {% with dimmed=site.status|yesno:",x" %}
+                    <tr class="{% if site.status != 'active' %}text-gray-500 dark:text-slate-400{% endif %} hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
+                        <td class="cell-head px-4 py-3.5">
+                            <div class="flex items-start gap-3">
+                                <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full {% if site.type == 'office' %}badge-info{% elif site.type == 'temporary' %}badge-warn{% else %}badge-neutral{% endif %}">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">{% if site.is_office %}<path stroke-linecap="round" stroke-linejoin="round" d="M4 21V5a2 2 0 012-2h8a2 2 0 012 2v16M4 21h16M16 9h2a2 2 0 012 2v10M8 7h4M8 11h4M8 15h4"/>{% else %}<path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/>{% endif %}</svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="font-medium {% if site.status == 'active' %}text-gray-900 dark:text-slate-100{% endif %}">{{ site.name }}</div>
+                                    <div class="max-w-xs truncate text-xs text-gray-500 dark:text-slate-400" title="{{ site.address|default:'' }}">{% if site.client_name %}{{ site.client_name }} · {% endif %}{% if site.address %}{{ site.address }}{% else %}{{ site.latitude|floatformat:5 }}, {{ site.longitude|floatformat:5 }}{% endif %}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td data-label="Type" class="px-4 py-3.5 whitespace-nowrap"><span class="badge {% if site.type == 'office' %}badge-info{% elif site.type == 'temporary' %}badge-warn{% else %}badge-neutral{% endif %}">{% if site.type == 'office' %}Main office{% elif site.type == 'temporary' %}Temporary{% else %}Project site{% endif %}</span></td>
+                        <td data-label="Geofence" class="px-4 py-3.5 whitespace-nowrap tabular-nums">
+                            <div class="row-actions justify-start">
+                                <span class="inline-flex h-8 items-center font-medium {% if site.status == 'active' %}text-gray-900 dark:text-slate-100{% endif %}">{{ site.geofence_radius_m|n0 }} m</span>
+                                <a href="https://www.google.com/maps?q={{ site.latitude }},{{ site.longitude }}" target="_blank" rel="noopener" class="is-primary" title="Open in Google Maps"><svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.2-6-10a6 6 0 1112 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg> Map</a>
+                            </div>
+                        </td>
+                        <td data-label="Window" class="px-4 py-3.5 whitespace-nowrap text-xs">
+                            {% if site.active_from or site.active_until %}
+                                <span class="{% if site.status == 'active' %}text-gray-700 dark:text-slate-200{% endif %}">{% if site.active_from %}{{ site.active_from|dmdy }}{% else %}…{% endif %} → {% if site.active_until %}{{ site.active_until|dmdy }}{% else %}open{% endif %}</span>
+                                {% if site.status == 'active' and not site.is_active_on %}<span class="badge badge-danger ml-1">outside window</span>{% endif %}
+                            {% else %}<span class="text-gray-400 dark:text-slate-500">Always</span>{% endif %}
+                        </td>
+                        <td data-label="Assigned" class="px-4 py-3.5 text-center tabular-nums">
+                            {% if site.is_office %}<span class="text-xs text-gray-400 dark:text-slate-500" title="The main office needs no assignment — everyone may clock in here">everyone</span>
+                            {% else %}<span class="font-medium {% if site.status == 'active' %}text-gray-900 dark:text-slate-100{% endif %}">{{ site.active_assignments_count }}</span> <span class="text-xs text-gray-400 dark:text-slate-500">employee{{ site.active_assignments_count|pluralize }}</span>{% endif %}
+                        </td>
+                        <td data-label="Status" class="px-4 py-3.5 whitespace-nowrap">{% status_badge site.status %}</td>
+                        <td data-label="Actions" class="px-4 py-3.5 whitespace-nowrap">
+                            <div class="row-actions">
+                                <a href="{% url 'sites.edit' site.id %}" class="is-primary">Edit</a>
+                                {% if site.status == 'active' %}
+                                    {% if not site.is_office %}<form method="POST" action="{% url 'sites.status' site.id %}" onsubmit="return confirm('Mark {{ site.name|escapejs }} as completed? Its geofence closes for new punches and active assignments to it are ended.')">{% csrf_token %}<input type="hidden" name="status" value="completed"><button class="is-primary">Complete</button></form>{% endif %}
+                                    <form method="POST" action="{% url 'sites.status' site.id %}" onsubmit="return confirm('Deactivate {{ site.name|escapejs }}? Nobody will be able to clock in there until it is reactivated.')">{% csrf_token %}<input type="hidden" name="status" value="inactive"><button class="is-danger">Deactivate</button></form>
+                                {% else %}
+                                    <form method="POST" action="{% url 'sites.status' site.id %}">{% csrf_token %}<input type="hidden" name="status" value="active"><button class="is-success">Reactivate</button></form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                    {% empty %}
+                    <tr><td colspan="7" class="p-0">{% url 'sites.create' as u %}{% empty_state "No locations yet" "Add the head office and each project site with its geofence." u "Add location" "map" %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

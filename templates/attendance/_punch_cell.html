@@ -1,0 +1,15 @@
+<td data-label="{{ label }}" class="px-4 py-3 {% if not log %}stack-skip{% endif %}">
+    {% if log %}
+        <div class="flex items-center justify-end gap-2 sm:justify-start">
+            {% if log.photo_path %}<img src="{{ log.photo_url }}" alt="selfie" @click="$dispatch('open-lightbox', '{{ log.photo_url }}')" class="h-8 w-8 shrink-0 cursor-zoom-in rounded-full object-cover transition hover:opacity-80 hover:ring-2 hover:ring-brand-500">{% endif %}
+            <div class="text-right sm:text-left">
+                <div class="font-medium text-gray-900 dark:text-slate-100">{{ log.logged_at|t12 }}{% next_day day log.logged_at %}</div>
+                <div class="text-xs text-gray-500 dark:text-slate-400">
+                    {% if log.site %}{{ log.site.name }}{% endif %}
+                    {% if log.latitude and log.longitude %}<a href="https://www.google.com/maps?q={{ log.latitude }},{{ log.longitude }}" target="_blank" rel="noopener" class="text-brand-600 hover:underline dark:text-brand-300">{% if log.site %}· map{% else %}View map{% endif %}</a>{% endif %}
+                </div>
+                {% if log.location_status %}{% location_badge log.location_status log.location_verification_status True "mt-0.5" %}{% endif %}
+            </div>
+        </div>
+    {% else %}<span class="text-gray-400 dark:text-slate-500">—</span>{% endif %}
+</td>

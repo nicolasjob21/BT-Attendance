@@ -1,0 +1,9 @@
+<div class="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+    <span class="grid h-12 w-12 place-items-center rounded-full bg-gray-100 text-gray-400 dark:bg-slate-800 dark:text-slate-500">
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="{{ path }}"/></svg>
+    </span>
+    <p class="text-sm font-medium text-gray-700 dark:text-slate-200">{{ title }}</p>
+    {% if hint %}<p class="max-w-md text-xs text-gray-500 dark:text-slate-400">{{ hint }}</p>{% endif %}
+    {% if dispatch and action %}<button type="button" x-data @click="$dispatch('{{ dispatch }}')" class="btn-app btn-sm btn-outline-brand mt-2">{{ action }}</button>
+    {% elif href and action %}<a href="{{ href }}" class="btn-app btn-sm btn-outline-brand mt-2">{{ action }}</a>{% endif %}
+</div>

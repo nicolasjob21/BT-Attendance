@@ -1,0 +1,135 @@
+{% extends "layouts/app.html" %}
+{% block header %}Checkpoint {{ checkpoint.reference }}{% endblock %}
+{% block content %}
+{% with cp=checkpoint c=campaign site=checkpoint.project_site %}
+<div class="page space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+            <div class="mt-1 flex flex-wrap items-center gap-2"><h2 class="text-xl font-bold text-gray-900 dark:text-slate-100">{{ cp.employee.full_name }}</h2>{% checkpoint_badge cp %}{% if cp.escalated_at %}<span class="badge badge-danger">Escalated {{ cp.escalated_at|dmd }}</span>{% endif %}</div>
+            <p class="text-sm text-gray-600 dark:text-slate-300">{{ cp.employee.employee_no }} · {{ site.name }} · window {% if c.starts_at %}{{ c.starts_at|dt12 }} – {{ c.expires_at|t12 }}{% else %}not started{% endif %}</p>
+        </div>
+    </div>
+    <div class="grid gap-5 lg:grid-cols-3">
+        <section class="card overflow-hidden">
+            <div class="border-b border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-900 dark:border-slate-700 dark:text-slate-100">Photo</div>
+            {% if has_photo %}<button type="button" @click="$dispatch('open-lightbox', '{% url 'checkpoints.photo' cp.id %}')" class="block w-full bg-black"><img src="{% url 'checkpoints.photo' cp.id %}" alt="Checkpoint photo" class="mx-auto max-h-80 w-full object-contain"></button><p class="px-4 py-2 text-xs text-gray-500 dark:text-slate-400">Instruction: “{{ c.instruction }}” · live camera capture, stamped on the server.</p>
+            {% else %}<div class="grid h-56 place-items-center text-sm text-gray-400 dark:text-slate-500">No photo submitted</div>{% endif %}
+        </section>
+        <section class="card overflow-hidden">
+            <div class="border-b border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-900 dark:border-slate-700 dark:text-slate-100">Map</div>
+            <div x-data="checkpointMap({ site: { lat: {{ site.latitude }}, lng: {{ site.longitude }}, r: {{ site.geofence_radius_m }}, name: '{{ site.name|escapejs }}' }, fix: {% if cp.latitude is not None %}{ lat: {{ cp.latitude }}, lng: {{ cp.longitude }}, acc: {{ cp.gps_accuracy_meters|default:0 }} }{% else %}null{% endif %} })"><div x-ref="map" class="relative z-0 h-64 w-full bg-gray-100 dark:bg-deep"></div></div>
+            <div class="px-4 py-2 text-xs text-gray-600 dark:text-slate-300">{% gps_badge cp %}{% if cp.distance_from_site_meters is not None %}<span class="ml-2">{{ cp.distance_from_site_meters|n0 }} m from {{ site.name }} (fence {{ site.geofence_radius_m }} m)</span>{% endif %}{% if cp.matched_site and cp.matched_site_id != cp.project_site_id %}<span class="block">Inside authorized location: {{ cp.matched_site.name }}</span>{% endif %}</div>
+        </section>
+        <section class="card p-4">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Details</h3>
+            <dl class="mt-2 space-y-1.5 text-sm">
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Checkpoint start</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if c.starts_at %}{{ c.starts_at|date:"M j, g:i:s A" }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Deadline</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if c.expires_at %}{{ c.expires_at|date:"g:i:s A" }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Notification</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{{ cp.notification_status }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Attempts</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{{ cp.submission_attempts }}{% if cp.last_attempt_at %} · last {{ cp.last_attempt_at|date:"g:i:s A" }}{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Submitted (server)</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if cp.submitted_at %}{{ cp.submitted_at|date:"g:i:s A" }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Response time</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% with s=cp.response_seconds %}{% if s is not None %}{{ s|div:60|floatformat:0 }}m {{ s|hlabel|slice:"-3:" }}{% else %}—{% endif %}{% endwith %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Device clock</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if cp.client_timestamp %}{{ cp.client_timestamp|date:"g:i:s A" }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Coordinates</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if cp.latitude is not None %}{{ cp.latitude }}, {{ cp.longitude }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">GPS accuracy</dt><dd class="text-right text-gray-900 tabular-nums dark:text-slate-100">{% if cp.gps_accuracy_meters is not None %}±{{ cp.gps_accuracy_meters|n0 }} m{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Network</dt><dd class="text-right text-gray-900 dark:text-slate-100">{{ cp.network_status|humanize_status|capfirst|default:"—" }}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Issue reported</dt><dd class="text-right text-gray-900 dark:text-slate-100">{% if cp.issue_reported %}{{ issues|get:cp.issue_reported|default:cp.issue_reported }}{% else %}—{% endif %}</dd></div>
+                <div class="flex justify-between gap-3"><dt class="text-gray-500 dark:text-slate-400">Project assignment</dt><dd class="text-right text-gray-900 dark:text-slate-100">{% if assigned_site %}{{ assigned_site.name }}{% else %}Office / unassigned{% endif %}</dd></div>
+            </dl>
+            {% if cp.validation_message %}<p class="mt-3 rounded-xs bg-gray-50 px-3 py-2 text-xs text-gray-700 dark:bg-slate-800/60 dark:text-slate-200">{{ cp.validation_message }}</p>{% endif %}
+            <p class="mt-2 text-[11px] text-gray-400 dark:text-slate-500">Start, deadline and server timestamps are fixed and cannot be edited.</p>
+        </section>
+    </div>
+    <div class="grid gap-5 lg:grid-cols-2">
+        <section class="card p-4">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Movement records that day</h3>
+            <p class="text-xs text-gray-500 dark:text-slate-400">Approved leave and punches on {% if c.starts_at %}{{ c.starts_at|date:"D, M j" }}{% else %}{{ cp.created_at|date:"D, M j" }}{% endif %}.</p>
+            <div class="mt-3 space-y-2 text-sm">
+                {% with l=context.approved_leave %}
+                {% if l %}<div class="rounded-xs border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-100"><p class="font-medium">Approved {% if l.is_early_leave %}early leave{% else %}{{ l.leave_type.name|default:"leave" }}{% endif %} covers this checkpoint</p><p class="text-xs opacity-80">{{ l.portion_label }}{% if l.is_early_leave and l.requested_time_out %} · out by {{ l.requested_time_out|t12 }}{% endif %}{% if l.reason %} · “{{ l.reason }}”{% endif %}</p></div>
+                {% elif cp.is_non_compliant %}<div class="rounded-xs border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"><p class="font-medium">No approved leave record for this time</p><p class="text-xs opacity-80">Follow up with the employee — this is not automatically misconduct.</p></div>{% endif %}
+                {% endwith %}
+                {% if context.clocked_out %}<p class="text-xs text-gray-600 dark:text-slate-300">Employee had clocked <strong>out</strong> at {{ context.last_punch.logged_at|t12 }} before this checkpoint.</p>{% endif %}
+                <ul class="divide-y divide-gray-100 rounded-xs border border-gray-200 dark:divide-slate-700 dark:border-slate-700">
+                    {% for p in context.punches %}<li class="flex items-center justify-between px-3 py-1.5 text-xs"><span class="font-medium text-gray-800 dark:text-slate-100">{% if p.is_time_in %}Time in{% else %}Time out{% endif %} · {{ p.logged_at|t12 }}</span><span class="text-gray-500 dark:text-slate-400">{{ p.site.name|default:"no site" }}</span>{% location_badge p.location_status p.location_verification_status True %}</li>
+                    {% empty %}<li class="px-3 py-3 text-center text-xs text-gray-400 dark:text-slate-500">No punches recorded that day.</li>{% endfor %}
+                </ul>
+            </div>
+            {% if cp.employee_explanation %}<div class="mt-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Employee's explanation</h4><p class="mt-1 rounded-xs bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:bg-slate-800/60 dark:text-slate-100">“{{ cp.employee_explanation }}”</p></div>{% endif %}
+            <h4 class="mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">Review records</h4>
+            <ul class="mt-1 divide-y divide-gray-100 text-sm dark:divide-slate-700">
+                {% for r in reviews %}<li class="py-2"><div class="flex flex-wrap items-baseline gap-x-2"><span class="font-medium text-gray-900 dark:text-slate-100">{{ r.action_label }}</span>{% if r.reason %}<span class="text-xs text-gray-600 dark:text-slate-300">{{ hr_reasons|get:r.reason|default:r.reason }}</span>{% endif %}<span class="text-xs text-gray-400 dark:text-slate-500">{{ r.reviewer.name }} · {{ r.created_at|dt12 }}</span></div>{% if r.explanation %}<p class="text-xs text-gray-700 dark:text-slate-200">Employee: “{{ r.explanation }}”</p>{% endif %}{% if r.note %}<p class="text-xs text-gray-500 dark:text-slate-400">Note: {{ r.note }}</p>{% endif %}</li>
+                {% empty %}<li class="py-2 text-xs text-gray-400 dark:text-slate-500">No review records yet.</li>{% endfor %}
+            </ul>
+        </section>
+        <section class="card p-4">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">HR follow-up</h3>
+            {% if not cp.is_reviewable %}<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Completed within the window — nothing to follow up.</p>
+            {% else %}
+                {% if cp.reviewed_at %}<div class="mt-2 rounded-xs border border-gray-200 px-3 py-2 text-sm dark:border-slate-700"><p class="font-medium text-gray-900 dark:text-slate-100">{% if cp.status == 'approved_exception' %}Exception approved{% else %}Exception rejected{% endif %} — {{ cp.hr_reason_label }}</p>{% if cp.hr_note %}<p class="text-gray-700 dark:text-slate-200">“{{ cp.hr_note }}”</p>{% endif %}<p class="mt-1 text-xs text-gray-500 dark:text-slate-400">— {{ cp.reviewed_by.name }}, {{ cp.reviewed_at|dt12 }}</p></div>{% endif %}
+                {% if can.review_checkpoint_exceptions %}
+                <div x-data="{ tab: '{% if cp.reviewed_at %}note{% else %}explanation{% endif %}' }" class="mt-3">
+                    <div class="flex flex-wrap gap-1 text-xs">
+                        <button type="button" @click="tab = 'explanation'" :class="tab === 'explanation' ? 'bg-brand-600 text-white' : 'border border-gray-300 text-gray-700 dark:border-slate-600 dark:text-slate-200'" class="rounded-xs px-2.5 py-1 font-medium">Record explanation</button>
+                        <button type="button" @click="tab = 'decide'" :class="tab === 'decide' ? 'bg-brand-600 text-white' : 'border border-gray-300 text-gray-700 dark:border-slate-600 dark:text-slate-200'" class="rounded-xs px-2.5 py-1 font-medium">Approve / reject</button>
+                        <button type="button" @click="tab = 'note'" :class="tab === 'note' ? 'bg-brand-600 text-white' : 'border border-gray-300 text-gray-700 dark:border-slate-600 dark:text-slate-200'" class="rounded-xs px-2.5 py-1 font-medium">Add HR note</button>
+                        <button type="button" @click="tab = 'escalate'" :class="tab === 'escalate' ? 'bg-brand-600 text-white' : 'border border-gray-300 text-gray-700 dark:border-slate-600 dark:text-slate-200'" class="rounded-xs px-2.5 py-1 font-medium">Escalate</button>
+                    </div>
+                    <form x-show="tab === 'explanation'" method="POST" action="{% url 'checkpoints.results.follow-up' cp.id %}" class="mt-3 space-y-2">
+                        {% csrf_token %}<input type="hidden" name="action" value="explanation">
+                        <label class="block text-xs font-medium text-gray-600 dark:text-slate-300">Employee's explanation (as told to HR)</label>
+                        <textarea name="explanation" rows="3" required maxlength="1000" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600">{{ cp.employee_explanation|default:'' }}</textarea>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-slate-300">Reason</label>
+                        <select name="reason" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">Select a reason…</option>{% for v, l in hr_reasons.items %}<option value="{{ v }}" {% if cp.hr_reason == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+                        <button class="btn-app btn-md btn-dark">Record explanation</button>
+                    </form>
+                    <form x-show="tab === 'decide'" x-cloak method="POST" action="{% url 'checkpoints.results.follow-up' cp.id %}" class="mt-3 space-y-2">
+                        {% csrf_token %}
+                        <label class="block text-xs font-medium text-gray-600 dark:text-slate-300">Reason</label>
+                        <select name="reason" required class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">Select a reason…</option>{% for v, l in hr_reasons.items %}<option value="{{ v }}" {% if cp.hr_reason == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-slate-300">Note (optional)</label>
+                        <textarea name="note" rows="2" maxlength="1000" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea>
+                        <div class="flex flex-wrap gap-2"><button name="action" value="approve" class="btn-app btn-md btn-success">Approve exception</button><button name="action" value="reject" class="btn-app btn-md btn-outline-danger">Reject exception</button>{% if cp.status != 'pending_review' %}<button name="action" value="mark_review" class="btn-app btn-md btn-outline-warn">Mark as pending review</button>{% endif %}</div>
+                        <p class="text-[11px] text-gray-500 dark:text-slate-400">Approving counts the checkpoint as <em>completed after review</em>. The decision is stored as a separate review record; the original evidence is unchanged.</p>
+                    </form>
+                    <form x-show="tab === 'note'" x-cloak method="POST" action="{% url 'checkpoints.results.follow-up' cp.id %}" class="mt-3 space-y-2">{% csrf_token %}<input type="hidden" name="action" value="note"><textarea name="note" rows="3" required maxlength="1000" placeholder="Internal HR note…" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea><button class="btn-app btn-md btn-dark">Add note</button></form>
+                    <form x-show="tab === 'escalate'" x-cloak method="POST" action="{% url 'checkpoints.results.follow-up' cp.id %}" class="mt-3 space-y-2">{% csrf_token %}<input type="hidden" name="action" value="escalate"><textarea name="note" rows="3" maxlength="1000" placeholder="Why this case is being escalated to management…" class="w-full rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"></textarea><button class="btn-app btn-md btn-danger">Escalate to management</button></form>
+                </div>
+                {% endif %}
+                <div class="mt-4 flex flex-wrap gap-2 text-xs">
+                    {% if cp.employee.email %}<a href="mailto:{{ cp.employee.email }}?subject=Checkpoint {{ cp.reference|urlencode }}" class="btn-app btn-xs btn-secondary">Contact employee</a>{% endif %}
+                    {% if can.manage_employees %}<a href="{% url 'employees.edit' cp.employee_id %}" class="btn-app btn-xs btn-secondary">Employee details</a>{% endif %}
+                    {% if can.view_team_reports %}<a href="{% url 'attendance.timesheet' cp.employee_id %}" class="btn-app btn-xs btn-secondary">Timesheet</a>{% endif %}
+                </div>
+            {% endif %}
+        </section>
+    </div>
+    <section class="card p-4">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-slate-100">Audit trail</h3>
+        <ul class="mt-2 divide-y divide-gray-100 text-sm dark:divide-slate-700">
+            {% for a in audit %}<li class="flex flex-wrap items-baseline gap-x-3 py-1.5"><span class="w-36 shrink-0 text-xs tabular-nums text-gray-500 dark:text-slate-400">{{ a.created_at|date:"M j, g:i:s A" }}</span><span class="font-medium text-gray-900 dark:text-slate-100">{{ a.action_label }}</span><span class="text-xs text-gray-500 dark:text-slate-400">{{ a.user.name|default:"System" }}</span>{% if a.details %}<span class="text-xs text-gray-500 dark:text-slate-400">{% for k, v in a.details.items %}<span class="mr-2">{{ k }}: {{ v }}</span>{% endfor %}</span>{% endif %}</li>
+            {% empty %}<li class="py-3 text-center text-gray-400 dark:text-slate-500">No actions recorded.</li>{% endfor %}
+        </ul>
+    </section>
+</div>
+{% endwith %}
+{% endblock %}
+{% block scripts %}
+<script>
+function checkpointMap({ site, fix }) {
+    return {
+        init() {
+            const map = L.map(this.$refs.map, { zoomControl: true, attributionControl: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+            const centre = site ? [site.lat, site.lng] : (fix ? [fix.lat, fix.lng] : [14.6108, 121.0049]);
+            map.setView(centre, 17);
+            const layers = [];
+            if (site) { layers.push(L.circle([site.lat, site.lng], { radius: site.r, color: '#4a9bb5', weight: 1.5, fillColor: '#7ec8e3', fillOpacity: 0.2 }).addTo(map)); L.marker([site.lat, site.lng]).addTo(map).bindTooltip(site.name, { direction: 'top' }); }
+            if (fix) { layers.push(L.circleMarker([fix.lat, fix.lng], { radius: 7, color: '#fff', weight: 2, fillColor: '#ea6c44', fillOpacity: 1 }).addTo(map).bindTooltip('Employee fix')); if (fix.acc) layers.push(L.circle([fix.lat, fix.lng], { radius: fix.acc, color: '#ea6c44', weight: 1, fillColor: '#f7a88a', fillOpacity: 0.15 }).addTo(map)); }
+            if (layers.length) map.fitBounds(L.featureGroup(layers).getBounds().pad(0.3));
+            setTimeout(() => map.invalidateSize(), 200);
+        },
+    };
+}
+</script>
+{% endblock %}

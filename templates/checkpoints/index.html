@@ -1,0 +1,49 @@
+{% extends "layouts/app.html" %}
+{% block header %}Check Point{% endblock %}
+{% block content %}
+<div class="page space-y-5">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-gray-500 dark:text-slate-400">A checkpoint asks every employee on a project site to prove they are there. Open one to see who completed it and who did not.</p>
+        <div class="flex flex-wrap gap-2">
+            {% if can.manage_checkpoint_settings %}<a href="{% url 'checkpoints.settings' %}" class="btn-app btn-md btn-secondary">Settings</a>{% endif %}
+            {% if can.view_checkpoint_results %}<a href="{% url 'checkpoints.results.index' %}" class="btn-app btn-md btn-secondary">Results</a>{% endif %}
+            <a href="{% url 'checkpoints.daily' %}" class="btn-app btn-md btn-secondary">Daily</a>
+            <a href="{% url 'checkpoints.history' %}" class="btn-app btn-md btn-secondary">History</a>
+            {% if can.create_checkpoint_campaign %}<a href="{% url 'checkpoints.create' %}" class="btn-app btn-md btn-brand">+ Create Checkpoint</a>{% endif %}
+        </div>
+    </div>
+    <div class="stat-strip">
+        {% if stats.live %}{% stat "Running now" stats.live "employees are being asked" "success" %}{% else %}{% stat "Running now" stats.live "nothing live" "muted" %}{% endif %}
+        {% stat "Scheduled" stats.scheduled "will fire on their own" stats.scheduled|yesno:"brand,muted" %}
+        {% stat "Completed today" stats.today_done "of "|add:stats.today|stringformat:"s"|add:" asked today" %}
+        {% with nd=stats.today|sub:stats.today_done|floatformat:0 %}{% stat "Not completed today" nd None nd|yesno:"danger,muted" %}{% endwith %}
+    </div>
+    <section class="card overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                <thead class="whitespace-nowrap bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:bg-slate-800/60 dark:text-slate-400">
+                    <tr><th class="px-4 py-3">Checkpoint</th><th class="px-4 py-3">Project</th><th class="px-4 py-3">When</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Completed</th><th class="px-4 py-3 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for c in campaigns %}
+                    <tr class="hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
+                        <td class="cell-head px-4 py-3"><a href="{% url 'checkpoints.show' c.id %}" class="font-medium text-gray-900 hover:underline dark:text-slate-100">{{ c.name }}</a></td>
+                        <td data-label="Project" class="px-4 py-3 text-gray-700 dark:text-slate-200">{{ c.project_site.name }}</td>
+                        <td data-label="When" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">{% if c.starts_at %}{{ c.starts_at|date:"M j" }} · {{ c.starts_at|t12 }}{% elif c.scheduled_start_at %}{{ c.scheduled_start_at|date:"M j" }} · {{ c.scheduled_start_at|t12 }}{% else %}<span class="text-gray-400 dark:text-slate-500">Not scheduled</span>{% endif %}</td>
+                        <td data-label="Status" class="px-4 py-3">{% campaign_badge c %}</td>
+                        <td data-label="Completed" class="px-4 py-3">
+                            {% if c.is_draft %}<span class="text-gray-400 dark:text-slate-500">{{ c.participants_count }} employee(s)</span>
+                            {% else %}{% with pct=c.completed_count|pct0:c.participants_count %}<div class="flex items-center gap-3"><span class="tabular-nums font-semibold {% if c.completed_count == c.participants_count %}text-emerald-700 dark:text-emerald-300{% else %}text-gray-900 dark:text-slate-100{% endif %}">{{ c.completed_count }} <span class="font-normal text-gray-500 dark:text-slate-400">of {{ c.participants_count }}</span></span><span class="hidden h-1.5 w-24 overflow-hidden bg-gray-200 sm:block dark:bg-slate-700" title="{{ pct }}%"><span class="block h-full bg-emerald-500" style="width: {{ pct }}%"></span></span></div>{% endwith %}{% endif %}
+                        </td>
+                        <td data-label="Actions" class="px-4 py-3 whitespace-nowrap"><div class="row-actions"><a href="{% url 'checkpoints.show' c.id %}" class="is-primary">{% if c.is_live %}Monitor{% else %}Open{% endif %}</a></div></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="p-0">{% if can.create_checkpoint_campaign %}{% url 'checkpoints.create' as u %}{% empty_state "No checkpoints yet" "Create one when a project site needs a presence check." u "Create checkpoint" "shield" %}{% else %}{% empty_state "No checkpoints yet" "Create one when a project site needs a presence check." None None "shield" %}{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if campaigns.has_other_pages %}<div class="border-t border-gray-100 px-4 py-3 dark:border-slate-700">{% query_without_page as query %}{% include "ui/pagination.html" with page=campaigns query=query %}</div>{% endif %}
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "layouts/app.html" %}
+{% block header %}Monthly Timesheet{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <p class="font-display text-xl font-bold text-gray-900 dark:text-slate-100">{{ employee.full_name }}</p>
+            <p class="text-xs text-gray-500 dark:text-slate-400">{{ employee.employee_no }} · {{ employee.schedule.name|default:"No schedule" }}{% with site=employee.assigned_site %}{% if site %} · assigned to {{ site.name }}{% endif %}{% endwith %}</p>
+        </div>
+        <form method="GET" action="{% url 'attendance.timesheet' employee.id %}" class="flex flex-wrap items-center gap-2">
+            <div class="inline-flex items-center overflow-hidden rounded-xs border border-gray-300 dark:border-slate-600">
+                <a href="?month={{ prev_month }}" aria-label="Previous month" class="px-2 py-2 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg></a>
+                <input type="month" name="month" value="{{ month|date:'Y-m' }}" onchange="this.form.submit()" class="border-0 bg-transparent px-2 py-1.5 text-sm focus:ring-0 dark:[color-scheme:dark]">
+                <a href="?month={{ next_month }}" aria-label="Next month" class="px-2 py-2 text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"><svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg></a>
+            </div>
+            <a href="?month={{ this_month }}" class="btn-app btn-md btn-secondary">This month</a>
+            {% if can_review %}<a href="{% url 'attendance.monitor' %}?date={% if is_current_month %}{{ today|date:'Y-m-d' }}{% else %}{{ month|date:'Y-m-d' }}{% endif %}" class="whitespace-nowrap text-sm text-brand-600 hover:underline dark:text-brand-300">Daily log</a>{% endif %}
+        </form>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Days present</p><p class="mt-1 font-display text-xl font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{{ totals.present }} / {{ expected_days }}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">expected so far</p></div>
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Absent</p><p class="mt-1 font-display text-xl font-bold tabular-nums {% if totals.absent %}text-rose-600 dark:text-rose-300{% else %}text-gray-900 dark:text-slate-100{% endif %}">{{ totals.absent }}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">working days, no punch</p></div>
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">On leave</p><p class="mt-1 font-display text-xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{{ totals.leave }}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">approved leave days</p></div>
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Hours worked</p><p class="mt-1 font-display text-xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{% if totals.worked %}{{ totals.worked|hlabel }}{% else %}—{% endif %}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">all sessions</p></div>
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Regular</p><p class="mt-1 font-display text-xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{% if totals.regular %}{{ totals.regular|hlabel }}{% else %}—{% endif %}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">first 8h per weekday</p></div>
+        <div class="card p-3"><p class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Overtime</p><p class="mt-1 font-display text-xl font-bold tabular-nums {% if totals.overtime %}text-accent-600 dark:text-accent-300{% else %}text-gray-900 dark:text-slate-100{% endif %}">{% if totals.overtime %}{{ totals.overtime|hlabel }}{% else %}—{% endif %}</p><p class="text-[11px] text-gray-400 dark:text-slate-500">incl. rest days</p></div>
+    </div>
+    {% if totals.exceptions %}<p class="text-xs text-rose-600 dark:text-rose-300">{{ totals.exceptions }} day(s) have a punch outside the authorized area / without GPS — see the location column.</p>{% endif %}
+
+    <div class="overflow-hidden card">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 dark:divide-slate-700 text-sm">
+                <thead class="bg-gray-50 dark:bg-slate-800/60 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                    <tr><th class="px-4 py-3">Date</th><th class="px-4 py-3">Time In</th><th class="px-4 py-3">Time Out</th><th class="px-4 py-3">Hours</th><th class="px-4 py-3">Location</th><th class="px-4 py-3">Status</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for day in days %}
+                    <tr class="{% if day.muted %}bg-gray-50/60 text-gray-400 dark:bg-slate-800/30 dark:text-slate-500{% endif %} {% if day.is_today %}ring-1 ring-inset ring-brand-300/60{% endif %}">
+                        <td class="cell-head px-4 py-2.5 whitespace-nowrap">
+                            <span class="font-medium {% if not day.muted %}text-gray-900 dark:text-slate-100{% endif %}">{{ day.date|date:"D" }}</span>
+                            <span class="{% if not day.muted %}text-gray-500 dark:text-slate-400{% endif %}"> {{ day.date|dmd }}</span>
+                            {% if day.rest_day and day.in %}<span class="badge badge-danger ml-1">rest day</span>{% endif %}
+                        </td>
+                        <td data-label="Time In" class="px-4 py-2.5 whitespace-nowrap {% if not day.in %}stack-skip{% endif %}">
+                            {% if day.in %}<div class="flex items-center justify-end gap-2 sm:justify-start">{% if day.in.photo_path %}<img src="{{ day.in.photo_url }}" alt="" @click="$dispatch('open-lightbox', '{{ day.in.photo_url }}')" class="h-7 w-7 shrink-0 cursor-zoom-in rounded-full object-cover hover:ring-2 hover:ring-brand-500">{% endif %}<span class="tabular-nums text-gray-900 dark:text-slate-100">{{ day.in.logged_at|t12 }}{% next_day day.date day.in.logged_at %}</span></div>
+                            {% else %}<span class="text-gray-300 dark:text-slate-600">—</span>{% endif %}
+                        </td>
+                        <td data-label="Time Out" class="px-4 py-2.5 whitespace-nowrap {% if not day.out and day.status != 'open' %}stack-skip{% endif %}">
+                            {% if day.out %}<div class="flex items-center justify-end gap-2 sm:justify-start">{% if day.out.photo_path %}<img src="{{ day.out.photo_url }}" alt="" @click="$dispatch('open-lightbox', '{{ day.out.photo_url }}')" class="h-7 w-7 shrink-0 cursor-zoom-in rounded-full object-cover hover:ring-2 hover:ring-brand-500">{% endif %}<span class="tabular-nums text-gray-900 dark:text-slate-100">{{ day.out.logged_at|t12 }}{% next_day day.date day.out.logged_at %}</span></div>
+                            {% elif day.status == 'open' %}<span class="text-xs text-amber-600 dark:text-amber-300">still clocked in</span>
+                            {% else %}<span class="text-gray-300 dark:text-slate-600">—</span>{% endif %}
+                        </td>
+                        <td data-label="Hours" class="px-4 py-2.5 tabular-nums {% if not day.minutes %}stack-skip{% endif %}">
+                            {% if day.minutes > 0 %}
+                                <div class="font-medium text-gray-900 dark:text-slate-100">{{ day.minutes|hlabel }}</div>
+                                {% if day.overtime > 0 %}
+                                    <div class="text-xs text-gray-500 dark:text-slate-400">
+                                        {% if day.rest_day %}<span class="font-medium text-accent-600 dark:text-accent-300">OT {{ day.overtime|hlabel }}</span>{% else %}Reg {{ day.regular|hlabel }} · <span class="font-medium text-accent-600 dark:text-accent-300">OT {{ day.overtime|hlabel }}</span>{% endif %}
+                                        {% if day.ot_request %}<span class="text-emerald-600 dark:text-emerald-300" title="Pre-approved overtime">✓ approved</span>
+                                        {% else %}<span class="{% if day.rest_day %}text-rose-600 dark:text-rose-300{% else %}text-gray-400 dark:text-slate-500{% endif %}" title="{% if day.rest_day %}Weekend work is paid only through an approved rest-day OT request{% else %}No approved OT request for this day{% endif %}">no request</span>{% endif %}
+                                    </div>
+                                {% endif %}
+                                {% if day.sessions > 1 %}<div class="text-[10px] text-gray-400 dark:text-slate-500">{{ day.sessions }} sessions</div>{% endif %}
+                            {% else %}<span class="text-gray-300 dark:text-slate-600">—</span>{% endif %}
+                        </td>
+                        <td data-label="Location" class="px-4 py-2.5 {% if not day.in %}stack-skip{% endif %}">
+                            {% if day.in %}
+                                <div class="text-gray-700 dark:text-slate-200">{{ day.site|default:"—" }}</div>
+                                {% if day.exception %}{% location_badge day.exception.location_status day.exception.location_verification_status True "mt-0.5" %}
+                                {% elif day.in.location_status %}{% location_badge day.in.location_status day.in.location_verification_status True "mt-0.5" %}{% endif %}
+                            {% else %}<span class="text-gray-300 dark:text-slate-600">—</span>{% endif %}
+                        </td>
+                        <td data-label="Status" class="px-4 py-2.5">
+                            {% if day.status == 'present' %}<span class="badge badge-success">Present</span>
+                            {% elif day.status == 'open' %}<span class="badge badge-info">Clocked in</span>
+                            {% elif day.status == 'incomplete' %}<span class="badge badge-warn">No time out</span>
+                            {% elif day.status == 'leave' %}<span class="badge badge-info">Leave{% if day.leave.leave_type.code %} · {{ day.leave.leave_type.code }}{% endif %}</span>
+                            {% elif day.status == 'absent' %}<span class="badge badge-danger">Absent</span>
+                            {% elif day.status == 'rest' %}<span class="text-xs">Rest day</span>
+                            {% else %}<span class="text-xs">—</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="bg-gray-50 text-xs font-semibold dark:bg-slate-800/60">
+                    <tr>
+                        <td class="px-4 py-2.5 text-gray-600 dark:text-slate-300" colspan="3">Month total</td>
+                        <td class="px-4 py-2.5 tabular-nums text-gray-900 dark:text-slate-100">{% if totals.worked %}{{ totals.worked|hlabel }}{% else %}—{% endif %} <span class="font-normal text-gray-500 dark:text-slate-400">· Reg {% if totals.regular %}{{ totals.regular|hlabel }}{% else %}—{% endif %} · OT {% if totals.overtime %}{{ totals.overtime|hlabel }}{% else %}—{% endif %}</span></td>
+                        <td class="px-4 py-2.5" colspan="2"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

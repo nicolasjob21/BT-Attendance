@@ -1,0 +1,41 @@
+{% extends "layouts/app.html" %}
+{% block header %}Check Point · Results{% endblock %}
+{% block content %}
+<div class="page space-y-4">
+    <form method="GET" class="card flex flex-wrap items-center gap-2 p-3">
+        <select name="campaign" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">All checkpoints</option>{% for c in campaigns %}<option value="{{ c.id }}" {% if filters.campaign == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+        <select name="employee" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">All employees</option>{% for e in employees %}<option value="{{ e.id }}" {% if filters.employee == e.id %}selected{% endif %}>{{ e.full_name }}</option>{% endfor %}</select>
+        <select name="status" class="min-w-[160px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">All statuses</option>{% for v, l in statuses.items %}<option value="{{ v }}" {% if filters.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        <select name="follow" class="min-w-[180px] flex-1 rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600"><option value="">Any follow-up state</option><option value="open" {% if filters.follow == 'open' %}selected{% endif %}>Follow-up open</option><option value="reviewed" {% if filters.follow == 'reviewed' %}selected{% endif %}>Reviewed</option><option value="escalated" {% if filters.follow == 'escalated' %}selected{% endif %}>Escalated</option></select>
+        <input type="date" name="from" value="{{ filters.from|default:'' }}" class="min-w-[150px] rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600 dark:[color-scheme:dark]">
+        <input type="date" name="to" value="{{ filters.to|default:'' }}" class="min-w-[150px] rounded-xs border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500 dark:border-slate-600 dark:[color-scheme:dark]">
+        <div class="flex shrink-0 gap-2"><button class="btn-app btn-md btn-dark">Filter</button>{% if filters.campaign or filters.employee or filters.status or filters.follow or filters.from or filters.to %}<a href="{% url 'checkpoints.results.index' %}" class="btn-app btn-md btn-secondary">Clear</a>{% endif %}</div>
+    </form>
+    <p class="text-xs text-gray-500 dark:text-slate-400">{{ checkpoints.paginator.count }} response(s)</p>
+    <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="table-stack min-w-full divide-y divide-gray-200 text-sm dark:divide-slate-700">
+                <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap dark:bg-slate-800/60 dark:text-slate-400">
+                    <tr><th class="px-4 py-3">Employee</th><th class="px-4 py-3">Checkpoint</th><th class="px-4 py-3">Window</th><th class="px-4 py-3">Submitted</th><th class="px-4 py-3">GPS</th><th class="px-4 py-3 text-right">Distance</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Follow-up</th><th class="px-4 py-3 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+                    {% for cp in checkpoints %}
+                    <tr class="hover:bg-gray-50/60 dark:hover:bg-slate-800/40">
+                        <td class="cell-head px-4 py-3"><div class="font-medium text-gray-900 dark:text-slate-100">{{ cp.employee.full_name }}</div><div class="text-xs text-gray-500 dark:text-slate-400">{{ cp.employee.employee_no }} · {{ cp.reference }}</div></td>
+                        <td data-label="Checkpoint" class="px-4 py-3"><a href="{% url 'checkpoints.show' cp.campaign_id %}" class="hover:underline">{{ cp.campaign.name }}</a><span class="block text-xs text-gray-500 dark:text-slate-400">{{ cp.project_site.name }}</span></td>
+                        <td data-label="Window" class="px-4 py-3 whitespace-nowrap tabular-nums text-gray-700 dark:text-slate-200">{% if cp.campaign.starts_at %}{{ cp.campaign.starts_at|date:"M j, g:i" }}–{{ cp.campaign.expires_at|t12 }}{% else %}—{% endif %}</td>
+                        <td data-label="Submitted" class="px-4 py-3 whitespace-nowrap tabular-nums">{% if cp.submitted_at %}{{ cp.submitted_at|date:"g:i:s A" }}{% else %}—{% endif %}</td>
+                        <td data-label="GPS" class="px-4 py-3">{% gps_badge cp %}</td>
+                        <td data-label="Distance" class="px-4 py-3 text-right tabular-nums">{% if cp.distance_from_site_meters is not None %}{{ cp.distance_from_site_meters|n0 }} m{% else %}—{% endif %}</td>
+                        <td data-label="Status" class="px-4 py-3">{% checkpoint_badge cp %}</td>
+                        <td data-label="Follow-up" class="px-4 py-3 text-xs text-gray-600 dark:text-slate-300">{% if cp.reviewed_at %}{{ cp.hr_reason_label }} <span class="block text-[11px] text-gray-400">{{ cp.reviewed_by.name }}</span>{% elif cp.escalated_at %}<span class="text-rose-700 dark:text-rose-300">Escalated</span>{% elif cp.is_non_compliant %}<span class="text-amber-700 dark:text-amber-300">Open</span>{% else %}—{% endif %}</td>
+                        <td data-label="Actions" class="px-4 py-3 whitespace-nowrap"><div class="flex justify-end"><a href="{% url 'checkpoints.results.show' cp.id %}" class="btn-app btn-xs btn-secondary">Details</a></div></td>
+                    </tr>
+                    {% empty %}<tr><td colspan="9" class="px-4 py-8 text-center text-gray-400 dark:text-slate-500">No responses match your filters.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% query_without_page as query %}{% include "ui/pagination.html" with page=checkpoints query=query %}
+</div>
+{% endblock %}

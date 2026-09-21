@@ -5,6 +5,11 @@
 
 ---
 
+> **Branches.** `main` is the original Laravel/PHP implementation (last commit `FINALIZED/PHP-LOANS&PAYSLIPS&MOBILE`).
+> From the `django` branch on, the same system is implemented in Django 5.2 — same screens, routes, tables, permissions
+> and payroll rules described below. Laravel file paths in this document (`app/…`, `resources/views/…`, `routes/web.php`)
+> refer to `main`; §29 maps each concern to its Django equivalent (`<app>/views.py`, `templates/…`, `core/…`).
+
 ## Contents
 
 1. [Overview](#1-overview)
@@ -730,9 +735,10 @@ BT-Attendance-Role-Permissions.xlsx   generated from RoleMatrix
 | Temporary password | Any admin-set password; must be replaced by the user before they can do anything else |
 | Softcopy | PNG proof of one punch with reference `ATT-{id}-IN/OUT` |
 
-## 29. Django port (`../BT-Attendance-Django`)
+## 29. Django port (`django` branch)
 
-A full port of this system to Django 5.2 / Python 3.11 lives in the sibling project `BT-Attendance-Django`.
+A full port of this system to Django 5.2 / Python 3.11 is the `django` branch of this repository (it was first
+built as the sibling project `BT-Attendance-Django`, then moved here).
 It is the same product — same 28 sections above, same tables and column names, same stylesheet, same role
 matrix — so that the company can run one stack alongside BT-Inventory. Points that matter when the two coexist:
 
