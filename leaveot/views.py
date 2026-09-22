@@ -8,10 +8,10 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import employee_required, permission_required
-from attendance import sessions as ws
 from core.models import notify, users_with_permission
 
 from .models import LeaveRequest, LeaveType, OvertimeRequest
+from .overtime import refresh_payroll_line, sync_actual_hours
 
 LATE_FILING_DAYS = 3
 
@@ -186,39 +186,6 @@ def _planned_hours(start, end):
     return round((e - s).total_seconds() / 3600, 2)
 
 
-def compute_overtime(employee, day: date) -> dict:
-    """OT = actual out − scheduled out on a fixed weekday; worked time beyond 8h for flexible staff or weekends."""
-    logs = employee.attendance_logs.filter(logged_at__range=(datetime.combine(day, datetime.min.time()), datetime.combine(day + timedelta(days=1), datetime.max.time()))).order_by("logged_at")
-    sess = ws.starting_on(ws.pair(list(logs)), day)
-    is_weekend = day.weekday() >= 5
-    ot_type = "rest_day" if is_weekend else "regular"
-    closing = ws.closing_out(sess)
-    actual_out = closing.logged_at if closing else None
-    if not actual_out:
-        return {"ok": False, "hours": 0.0, "ot_type": ot_type, "actual_out": None, "scheduled_out": None, "message": "No clock-out found for that date. Clock out first, then file your overtime."}
-    scheduled_time_out = employee.schedule.time_out if employee.schedule else None
-    if scheduled_time_out and not is_weekend:
-        scheduled_out = datetime.combine(day, scheduled_time_out)
-        minutes = max(0, int(round((actual_out - scheduled_out).total_seconds() / 60)))
-        hours = round(minutes / 60, 2)
-        msg = f"Auto-calculated {hours}h — actual out {actual_out:%-I:%M %p} minus scheduled out {scheduled_out:%-I:%M %p}." if hours > 0 else f"Your time out ({actual_out:%-I:%M %p}) is not past your scheduled out ({scheduled_out:%-I:%M %p}), so there is no overtime."
-        return {"ok": hours > 0, "hours": hours, "ot_type": ot_type, "actual_out": actual_out, "scheduled_out": scheduled_out, "message": msg}
-    minutes = ws.worked_minutes(sess)
-    hours = round(ws.split(minutes, is_weekend)["overtime"] / 60, 2)
-    basis = "weekend rest-day work (all hours are overtime)" if is_weekend else "time worked beyond 8 hours"
-    return {"ok": hours > 0, "hours": hours, "ot_type": ot_type, "actual_out": actual_out, "scheduled_out": None, "message": f"Auto-calculated {hours}h from {basis} — actual out {actual_out:%-I:%M %p}." if hours > 0 else f"No overtime — {basis}."}
-
-
-def sync_actual_hours(ot: OvertimeRequest):
-    if not ot.awaiting_actual_hours() or not ot.employee_id:
-        return
-    calc = compute_overtime(ot.employee, ot.ot_date)
-    if not calc["actual_out"]:
-        return
-    ot.hours, ot.ot_type, ot.hours_synced_at = calc["hours"], calc["ot_type"], timezone.now()
-    ot.save(update_fields=["hours", "ot_type", "hours_synced_at"])
-
-
 @permission_required("request overtime", "approve requests")
 def overtime_index(request):
     employee = getattr(request.user, "employee", None)
@@ -228,7 +195,7 @@ def overtime_index(request):
         qs = qs.filter(employee=employee)
     page = Paginator(qs, 20).get_page(request.GET.get("page"))
     for r in page.object_list:
-        sync_actual_hours(r)
+        r.calc = sync_actual_hours(r)
     scope = OvertimeRequest.objects.filter(employee=employee) if (not can_approve and employee) else OvertimeRequest.objects.all()
     today = timezone.now().date()
     stats = {
@@ -319,6 +286,7 @@ def overtime_approve(request, pk):
     if _decide_ot(request, ot, "approved"):
         ot.refresh_from_db()
         sync_actual_hours(ot)
+        refresh_payroll_line(ot)
         messages.success(request, "Overtime request approved.")
     return redirect(request.META.get("HTTP_REFERER") or "overtime.index")
 
@@ -330,3 +298,23 @@ def overtime_deny(request, pk):
     if _decide_ot(request, ot, "denied"):
         messages.success(request, "Overtime request denied.")
     return redirect(request.META.get("HTTP_REFERER") or "overtime.index")
+
+
+@permission_required("approve requests")
+@require_POST
+def overtime_cancel(request, pk):
+    """Withdraw an approval — the employee was sick, sent home, or the work fell through. Nothing is paid for it."""
+    ot = get_object_or_404(OvertimeRequest.objects.select_related("employee__user"), pk=pk)
+    if not ot.can_cancel():
+        messages.error(request, "Only an approved request that has not been paid yet can be cancelled.")
+        return redirect(request.META.get("HTTP_REFERER") or "overtime.index")
+    ot.status, ot.cancel_reason = "cancelled", (request.POST.get("reason") or "").strip() or None
+    ot.cancelled_by, ot.cancelled_at = getattr(request.user, "employee", None), timezone.now()
+    ot.save()
+    refresh_payroll_line(ot)
+    if ot.employee.user:
+        notify(ot.employee.user, kind="rejected", title="Overtime cancelled", message=f"Your approved overtime for {ot.ot_date:%b %-d} was cancelled by HR{f' — {ot.cancel_reason}' if ot.cancel_reason else ''}.", url=reverse("overtime.index"))
+    messages.success(request, f"Overtime for {ot.ot_date:%b %-d} cancelled — it will not be paid.")
+    return redirect(request.META.get("HTTP_REFERER") or "overtime.index")
+
+

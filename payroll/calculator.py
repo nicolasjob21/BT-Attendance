@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from core.support import dec
 from leaveot.models import LeaveRequest, OvertimeRequest
+from leaveot.overtime import sync_actual_hours
 
 from . import rates
 from .models import ContributionRate, PayrollDeduction, PayrollDeductionPayment, PayrollItem, PayrollPeriod
@@ -60,10 +61,11 @@ class PayrollCalculator:
         )
         half_day_deduction = _r2(approved_half_days * daily)
 
-        # ---- overtime: paid one cutoff in arrears, actual hours capped at approved ----
+        # ---- overtime: paid one cutoff in arrears, actual hours (from the punches) capped at approved ----
         ot_from, ot_to = period.overtime_window()
         overtime_pay = 0.0
-        for ot in employee.overtime_requests.filter(status="approved", hours__isnull=False, ot_date__range=(ot_from, ot_to)):
+        for ot in employee.overtime_requests.filter(status="approved", ot_date__range=(ot_from, ot_to)):
+            sync_actual_hours(ot)  # never rely on someone having opened the Overtime page
             overtime_pay += (ot.payable_hours() or 0) * hourly * ot.multiplier()
         overtime_pay = _r2(overtime_pay)
 

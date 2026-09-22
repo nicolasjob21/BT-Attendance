@@ -25,6 +25,8 @@ from core.support import dec, money
 from employees.models import Employee, Site
 
 from . import rates
+from leaveot.overtime import unpaid_watchlist
+
 from .calculator import PayrollCalculator
 from .models import ContributionRate, PayrollDeduction, PayrollItem, PayrollPeriod
 from .runner import PayrollRunner
@@ -63,8 +65,9 @@ def index(request):
     earn_colors = ["bg-emerald-500", "bg-emerald-400", "bg-emerald-300", "bg-emerald-200"]
     ded_colors = ["bg-accent-600", "bg-accent-400", "bg-amber-400", "bg-rose-500", "bg-rose-300", "bg-slate-400", "bg-sky-500", "bg-violet-500"]
     pay_day = runner.status()
+    ot_watch = unpaid_watchlist(selected) if (selected and not selected.is_released and not selected.is_closed) else None
     return render(request, "payroll/index.html", {
-        "periods": periods, "selected": selected, "items": items, "pay_day": pay_day,
+        "periods": periods, "selected": selected, "items": items, "pay_day": pay_day, "ot_watch": ot_watch,
         "can_edit": request.user.can("manage payroll rates"), "by_card": by_card, "cash_count": len(items) - by_card,
         "totals": {"gross": sum(i.gross_pay for i in items), "deductions": sum(i.total_deductions for i in items), "net": sum(i.net_pay for i in items)},
         "kept_pct": round(100 - float(sum(i.total_deductions for i in items)) / gross * 100, 1), "ded_pct": round(float(sum(i.total_deductions for i in items)) / gross * 100, 1),
