@@ -15,4 +15,5 @@ urlpatterns = [
     path("overtime/store", views.overtime_store, name="overtime.store"),
     path("overtime/<int:pk>/approve", views.overtime_approve, name="overtime.approve"),
     path("overtime/<int:pk>/deny", views.overtime_deny, name="overtime.deny"),
+    path("overtime/<int:pk>/cancel", views.overtime_cancel, name="overtime.cancel"),
 ]

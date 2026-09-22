@@ -22,6 +22,7 @@ from core.models import notify, users_with_permission
 from core.photos import decode_data_url
 from core.support import media_path
 from employees.models import Employee, Site
+from leaveot.overtime import resync_day
 
 from . import sessions as ws, softcopy
 from .geofence import GeofenceService
@@ -324,6 +325,7 @@ def verify(request, pk):
         return redirect(request.META.get("HTTP_REFERER") or "attendance.monitor")
     log.ot_verification_status, log.ot_remarks, log.ot_verified_by, log.ot_verified_at = decision, remarks, request.user, timezone.now()
     log.save()
+    resync_day(log.employee, log.logged_at.date())  # the decision is what payroll pays from
     if log.employee.user:
         notify(log.employee.user, kind="approved" if decision == "approved" else "rejected", title=f"Overtime {decision}", message=f"Your long day on {log.logged_at:%b %-d} was {decision} by HR.", url=reverse("attendance.index"))
     messages.success(request, f"Overtime {decision} for {log.employee.full_name}.")

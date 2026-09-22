@@ -292,8 +292,9 @@ The Leave page doubles as the approval queue: approvers see everyone's requests,
 
 - **Request before working** (`POST /overtime`): `ot_date` (today or future; up to 3 days back for late filing, e.g. weekend site work filed on Monday), planned window (`planned_start`, `planned_end`; 15 min – 12 h, may cross midnight), reason (min 10 chars). `ot_type` is derived from the date: `regular` (Mon–Fri) or `rest_day` (Sat/Sun). One pending/approved request per date.
 - **Approval** (`approve requests`), then **actual hours are derived from attendance** (`OvertimeController::syncActualHours`): for fixed-schedule weekdays, OT = actual out − scheduled out; for flexible staff or weekends, OT = worked time beyond 8 h (all of it on a rest day). Never typed in.
+- **Cancel** (`approve requests`, `POST /overtime/{id}/cancel`): withdraws an approval the employee never used — sick, sent home, work postponed — with an optional reason; the employee is notified, the date can be filed again, and an already-computed (unreleased) payroll line is refreshed. Refused once the payslip that pays it is released.
 - **Payroll** pays approved OT **one cutoff in arrears** (hours are final by then), capped at the approved hours, at the premium (125 % regular, 130 % rest day, 200 % holiday) × hourly rate.
-- **13h+ verification** on the Attendance Log is separate from the request and guards against forgotten clock-outs.
+- **13h+ verification** on the Attendance Log guards against forgotten clock-outs and feeds the pay: a 13h+ day's OT is held (not synced, not paid) until HR verifies it, and is 0 h when HR rejects it. Payroll re-derives the hours itself when it runs, so pay never depends on someone opening the Overtime page. Approving, cancelling or verifying after a period was computed refreshes that employee's line (unless HR edited it by hand), and the payroll page lists the window's OT that will not be paid as things stand — requests still pending, 13h+ days still unverified — until the period is closed or released.
 
 ## 12. Module: Employees
 

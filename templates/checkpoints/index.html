@@ -2,9 +2,9 @@
 {% block header %}Check Point{% endblock %}
 {% block content %}
 <div class="page space-y-5">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-gray-500 dark:text-slate-400">A checkpoint asks every employee on a project site to prove they are there. Open one to see who completed it and who did not.</p>
-        <div class="flex flex-wrap gap-2">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <p class="max-w-2xl text-sm text-gray-500 dark:text-slate-400">A checkpoint asks every employee on a project site to prove they are there. Open one to see who completed it and who did not.</p>
+        <div class="flex flex-wrap items-center gap-2 lg:shrink-0">
             {% if can.manage_checkpoint_settings %}<a href="{% url 'checkpoints.settings' %}" class="btn-app btn-md btn-secondary">Settings</a>{% endif %}
             {% if can.view_checkpoint_results %}<a href="{% url 'checkpoints.results.index' %}" class="btn-app btn-md btn-secondary">Results</a>{% endif %}
             <a href="{% url 'checkpoints.daily' %}" class="btn-app btn-md btn-secondary">Daily</a>

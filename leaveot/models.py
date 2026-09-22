@@ -84,6 +84,9 @@ class OvertimeRequest(models.Model):
     approved_by = models.ForeignKey(Employee, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_column="approved_by")
     approved_at = models.DateTimeField(null=True, blank=True)
     admin_remarks = models.TextField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(Employee, null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_column="cancelled_by")
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
 
@@ -122,5 +125,17 @@ class OvertimeRequest(models.Model):
         nxt = (d.replace(day=1) + timezone.timedelta(days=32)).replace(day=1)
         return f"{nxt:%b %-d} – {nxt.replace(day=15):%b %-d} payroll"
 
-    def awaiting_actual_hours(self):
-        return self.status == "approved" and self.hours is None and self.ot_date <= timezone.now().date()
+    def payout_period(self):
+        """The payroll period that pays this OT (one cutoff in arrears), if it exists yet."""
+        from payroll.models import PayrollPeriod
+
+        d = self.ot_date
+        start = d.replace(day=16) if d.day <= 15 else (d.replace(day=1) + timezone.timedelta(days=32)).replace(day=1)
+        return PayrollPeriod.objects.filter(period_start=start).first()
+
+    def can_cancel(self):
+        """Approved and not yet on a final payslip (the paying period is neither closed nor released)."""
+        if self.status != "approved":
+            return False
+        period = self.payout_period()
+        return not (period and (period.is_closed or period.is_released))

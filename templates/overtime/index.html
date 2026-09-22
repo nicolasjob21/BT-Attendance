@@ -29,16 +29,18 @@
                         <td data-label="Reason" class="px-4 py-3">
                             <p class="max-w-md whitespace-pre-line text-gray-700 dark:text-slate-200">{{ req.reason|default:"—" }}</p>
                             {% if req.admin_remarks %}<p class="mt-1 max-w-md text-xs text-gray-500 dark:text-slate-400"><span class="font-medium">{{ req.approved_by.full_name|default:"Approver" }}:</span> “{{ req.admin_remarks }}”</p>{% endif %}
+                            {% if req.status == 'cancelled' %}<p class="mt-1 max-w-md text-xs text-rose-600 dark:text-rose-300"><span class="font-medium">Cancelled by {{ req.cancelled_by.full_name|default:"HR" }}:</span> {% if req.cancel_reason %}“{{ req.cancel_reason }}”{% else %}will not be paid{% endif %}</p>{% endif %}
                         </td>
                         <td data-label="Hours" class="px-4 py-3 text-center tabular-nums">
                             {% if req.requested_hours is not None %}<div class="text-gray-900 dark:text-slate-100"><span class="text-xs text-gray-400 dark:text-slate-500">planned</span> {{ req.requested_hours|floatformat:"-2" }}h</div>{% endif %}
                             {% if req.hours is not None %}
                                 <div class="text-gray-900 dark:text-slate-100"><span class="text-xs text-gray-400 dark:text-slate-500">actual</span> {{ req.hours|floatformat:"-2" }}h
                                 {% with p=req.payable_hours %}{% if p is not None and p < req.hours %}<span class="text-xs text-accent-600 dark:text-accent-300" title="Paid hours are capped at the approved plan">(paid {{ p|floatformat:"-2" }}h)</span>{% endif %}{% endwith %}</div>
-                            {% elif req.status == 'approved' %}<div class="text-xs text-gray-400 dark:text-slate-500">{% if req.ot_date > today %}upcoming{% else %}awaiting clock-out{% endif %}</div>{% endif %}
+                                {% if req.calc.verification == 'rejected' %}<div class="text-xs text-rose-600 dark:text-rose-300" title="{{ req.calc.message }}">rejected by HR</div>{% endif %}
+                            {% elif req.status == 'approved' %}<div class="text-xs text-gray-400 dark:text-slate-500">{% if req.ot_date > today %}upcoming{% elif req.calc.held %}<span class="text-amber-600 dark:text-amber-300" title="{{ req.calc.message }}">awaiting HR check</span>{% else %}awaiting clock-out{% endif %}</div>{% endif %}
                             {% if req.status == 'approved' %}<div class="mt-0.5 text-[10px] text-gray-400 dark:text-slate-500" title="Overtime is paid one cutoff later">paid in {{ req.payout_cutoff_label }}</div>{% endif %}
                         </td>
-                        <td data-label="Status" class="px-4 py-3">{% status_badge req.status %}{% if req.status != 'pending' %}<div class="mt-1 text-[11px] text-gray-400 dark:text-slate-500">by {{ req.approved_by.full_name|default:"—" }}{% if req.approved_at %} · {{ req.approved_at|dmd }}{% endif %}</div>{% endif %}</td>
+                        <td data-label="Status" class="px-4 py-3">{% status_badge req.status %}{% if req.status == 'cancelled' %}<div class="mt-1 text-[11px] text-gray-400 dark:text-slate-500">by {{ req.cancelled_by.full_name|default:"—" }}{% if req.cancelled_at %} · {{ req.cancelled_at|dmd }}{% endif %}</div>{% elif req.status != 'pending' %}<div class="mt-1 text-[11px] text-gray-400 dark:text-slate-500">by {{ req.approved_by.full_name|default:"—" }}{% if req.approved_at %} · {{ req.approved_at|dmd }}{% endif %}</div>{% endif %}</td>
                         {% if can_approve %}
                         <td data-label="Decision" class="px-4 py-3">
                             {% if req.status == 'pending' %}
@@ -47,6 +49,8 @@
                                     <input type="text" name="remarks" maxlength="500" placeholder="Remarks (optional)" class="w-full rounded-xs border-gray-300 dark:border-slate-600 text-xs focus:border-brand-500 focus:ring-brand-500">
                                     <div class="flex gap-1.5"><button formaction="{% url 'overtime.approve' req.id %}" class="btn-app btn-xs btn-success">Approve</button><button formaction="{% url 'overtime.deny' req.id %}" class="btn-app btn-xs btn-outline-danger">Deny</button></div>
                                 </form>
+                            {% elif req.can_cancel %}
+                                <div class="flex sm:justify-end">{% url 'overtime.cancel' req.id as a %}{% confirm_action a "Cancel this overtime?" "Use this when the employee was sick, sent home, or the work fell through. Nothing will be paid for it and they will be told." "Cancel overtime" "rose" True "xs" "outline" "" "Why? (optional)" %}</div>
                             {% else %}<span class="text-xs text-gray-400 dark:text-slate-500">Decided</span>{% endif %}
                         </td>
                         {% endif %}
